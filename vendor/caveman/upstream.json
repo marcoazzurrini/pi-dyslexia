@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/JuliusBrussee/caveman",
+  "commit": "5184b3d11ac6a1acb7d44b9bfaa31698157cff97",
+  "files": {
+    "SKILL.md": "skills/caveman/SKILL.md",
+    "LICENSE": "LICENSE",
+    "LICENSING.md": "LICENSING.md"
+  }
+}
