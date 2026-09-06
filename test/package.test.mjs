@@ -9,9 +9,15 @@ test("package includes the root policy and license without duplicate skill disco
   const pkg = JSON.parse(await read("package.json"));
   assert.equal(pkg.private, true);
   assert.deepEqual(pkg.pi.skills, []);
-  assert.equal(pkg.pi.extensions.length, 1);
-  const extension = await import(new URL(pkg.pi.extensions[0], root));
-  assert.equal(typeof extension.default, "function");
+  assert.deepEqual(pkg.pi.extensions, ["./index.ts", "./speech/index.ts"]);
+  for (const path of pkg.pi.extensions) {
+    const extension = await import(new URL(path, root));
+    assert.equal(typeof extension.default, "function");
+  }
+  assert.ok(pkg.files.includes("speech/*.ts"));
+  for (const path of ["speech/index.ts", "speech/player.ts", "speech/audio.ts", "speech/text.ts", "speech/worker.py", "speech/setup.sh", "speech/requirements.txt"]) {
+    assert.ok((await read(path)).length > 0);
+  }
 
   for (const path of ["index.ts", "SKILL.md", "LICENSE"]) {
     assert.ok(pkg.files.includes(path), `${path} must be packaged`);

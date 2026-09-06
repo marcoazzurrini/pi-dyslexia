@@ -87,6 +87,49 @@ The writing policy always starts **on**. Turning it off is temporary: restarting
 
 The extension appends instructions; it does not rewrite stored messages or code. Model adherence is not guaranteed. The adapted policy preserves meaningful uncertainty and safety warnings, discourages invented abbreviations and causal arrows, and allows compression only when relationships remain clear.
 
+## Local speech (v0.4.0 preview)
+
+Version `0.4.0` adds local narration alongside the writing policy. It requires **Apple Silicon macOS, Pi 0.85.1 or newer, and English text**. Kokoro + MLX-Audio is the trial engine; [local measurements and remaining evaluation](docs/research/speech.md) are recorded separately. Listening comfort and technical pronunciation still need your assessment.
+
+After installing or updating this package, run the one-time setup from its checkout, then start Pi:
+
+```sh
+npm run setup:speech
+pi --tui-mode fullscreen
+```
+
+Setup requires [uv](https://docs.astral.sh/uv/) and explicitly downloads Python dependencies, the English dictionary, and the pinned Kokoro model. It installs the runtime in `~/.cache/pi-dyslexia/venv`; model files use Hugging Face's cache. Nothing downloads when Pi loads the extension. Setup does not play audio. The runtime and model are already installed on the development Mac used for the benchmark.
+
+The installed package loads both the writing and speech extensions automatically. Fullscreen mode enables clickable controls; ordinary `pi` still supports shortcuts and commands. Restart Pi after updating. For development against an older installed package, use `npm install --legacy-peer-deps` and `pi -e ./speech/index.ts` from this repository. Do not add that entry point when the installed package already includes speech, or it will load twice.
+
+```text
+/speech auto on       Narrate future completed answers automatically; save preference
+/speech              Play the selected/latest answer, or pause/resume active speech
+/speech replay       Restart the selected answer from the beginning
+/speech latest       Read the newest completed answer
+/speech previous     Return to the previous speech chunk, usually a sentence
+/speech stop         Stop playback and cancel pending synthesis immediately
+/speech answers      Choose an earlier answer from this session branch
+/speech speed 1.25   Set synthesis speed (0.5–2); upcoming speech uses the new setting
+/speech voice        Choose an English voice preset
+/speech preview      Hear a fixed voice sample; /speech latest returns to your answer
+/speech include all  Include code blocks and URL destinations; replay to apply
+/speech include prose  Announce skipped code blocks/URLs instead of reading them
+/speech auto off      Disable automatic playback; manual controls still work
+/speech off           Stop, unload the model, and disable automatic playback
+/speech help          List controls
+```
+
+**Shortcuts:** `Ctrl+Alt+S` plays/pauses, `Ctrl+Alt+R` replays, and `Ctrl+Alt+X` stops. Some terminals reserve these keys; slash commands remain available. Clickable controls work only in Pi fullscreen mode and do not replace the editor or footer.
+
+Automatic playback defaults to **on** when Pi opens. A saved `/speech auto off` preference is still respected. Invalid or unreadable settings fall back to manual playback. Preferences are stored in `~/.config/pi-dyslexia/speech.json`, independently of the writing policy. `/dyslexia off` does not stop speech. Loading a session never speaks old messages automatically. Narration starts only after Pi settles, not between tool calls. A new submitted prompt stops speech; typing alone does not. A paused or currently playing answer is not replaced by a newer answer; the widget offers `/speech latest` instead. There is no automatic backlog.
+
+Speech reads a separate Markdown rendering, never an AI summary. The original message remains intact. Code blocks and URL destinations are skipped with spoken announcements by default. Inline identifiers are retained, tables are read row by row, and deleted text is identified as deleted. Speech is not a reliable way to copy code; use the original text for exact syntax. No word/sentence highlighting is implemented yet.
+
+Generation runs in an owned Python subprocess. Playback uses a separate sounddevice/PortAudio process, so pause and stop do not wait for inference. Pause holds the sample position; small device buffers can still take a moment to drain. One upcoming chunk is generated ahead. Long sentences are split at 500 characters, so some boundaries may sound abrupt. The first request loads the model and dictionary; later requests keep the model warm. Cancelling active synthesis kills that worker because MLX has no per-request interrupt; the next uncached request reloads it.
+
+No cloud fallback, microphone, transcript logging, or HTTP server is used. All five presets were tested with OS networking denied. Temporary WAV files are private, bounded to a 32 MiB cache per session, and deleted on eviction or normal shutdown/reload/session replacement. An OS crash or `SIGKILL` can leave temporary files named `pi-dyslexia-speech-*` in the system temporary directory. Model downloads remain cached. Headless, JSON, print, and RPC runs never play speech. Multiple independent Pi windows have independent players; stop one before listening in another.
+
 ## Check
 
 With Node.js 22.6 or newer:
@@ -95,7 +138,11 @@ With Node.js 22.6 or newer:
 npm test
 ```
 
-No build step is required. Pi loads the TypeScript entry point directly.
+No build step is required. Pi loads the TypeScript entry points directly. Default tests fake synthesis and playback; they require no model download. On the setup Mac, run the opt-in worker/player checks (only silence is played):
+
+```sh
+npm run test:speech-local
+```
 
 ## Policy source and license
 
@@ -103,7 +150,7 @@ No build step is required. Pi loads the TypeScript entry point directly.
 
 The upstream copyright and MIT permission notice are preserved in [`LICENSE`](LICENSE), scoped to the adapted skill. No upstream engine or proxy code is included. The old `vendor/` directory is removed.
 
-The package includes `index.ts`, `SKILL.md`, and `LICENSE`. The skill is not registered separately with Pi (`pi.skills` is empty); only the extension injects it and controls activation.
+The package includes `index.ts`, `speech/` source and setup files, `SKILL.md`, and `LICENSE`. The skill is not registered separately with Pi (`pi.skills` is empty); only the writing extension injects it and controls activation. Speech has a separate entry point and does not change the writing prompt. Model weights and the Python environment are not bundled. The speech runtime includes GPL-covered pronunciation dependencies; see the license notes in [speech research](docs/research/speech.md) before redistributing a bundled runtime.
 
 ## How we work
 

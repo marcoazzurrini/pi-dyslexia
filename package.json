@@ -1,6 +1,6 @@
 {
   "name": "pi-dyslexia",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Personal reading and listening preferences for Pi.",
@@ -13,20 +13,31 @@
   },
   "files": [
     "index.ts",
+    "speech/*.ts",
+    "speech/worker.py",
+    "speech/setup.sh",
+    "speech/requirements.txt",
     "SKILL.md",
     "LICENSE"
   ],
   "scripts": {
     "test": "node --experimental-strip-types --test test/*.test.mjs",
+    "test:speech-local": "python3 test/speech-worker.py && PI_DYSLEXIA_AUDIO_TEST=1 node --experimental-strip-types --test test/speech-local.test.mjs",
+    "setup:speech": "sh speech/setup.sh",
     "preversion": "npm test"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": ">=0.85.1"
   },
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./index.ts",
+      "./speech/index.ts"
     ],
     "skills": []
+  },
+  "dependencies": {
+    "entities": "7.0.1",
+    "marked": "17.0.1"
   }
 }
