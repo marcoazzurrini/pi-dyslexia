@@ -1,5 +1,7 @@
 # pi-dyslexia
 
+This extension is intended for personal use first, therefore, it can afford to be opinionated.
+
 Make the [Pi coding agent](https://pi.dev) easier to read and listen to, especially for people with dyslexia.
 
 **Work only. No reading-training mode.** Reduce reading effort without losing meaning, technical accuracy, or important warnings.
