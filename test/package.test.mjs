@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 const read = (path) => readFile(new URL(path, root), "utf8");
 
-test("package exposes a loadable extension and bundles Caveman without duplicate skill discovery", async () => {
+test("package includes the root policy and license without duplicate skill discovery or a vendor directory", async () => {
   const pkg = JSON.parse(await read("package.json"));
   assert.equal(pkg.private, true);
   assert.deepEqual(pkg.pi.skills, []);
@@ -13,12 +13,14 @@ test("package exposes a loadable extension and bundles Caveman without duplicate
   const extension = await import(new URL(pkg.pi.extensions[0], root));
   assert.equal(typeof extension.default, "function");
 
-  const upstream = JSON.parse(await read("vendor/caveman/upstream.json"));
-  assert.match(upstream.commit, /^[a-f0-9]{40}$/);
-  assert.equal(upstream.files["SKILL.md"], "skills/caveman/SKILL.md");
-  for (const path of ["SKILL.md", "LICENSE", "LICENSING.md"]) {
-    assert.ok((await read(`vendor/caveman/${path}`)).length > 0);
+  for (const path of ["index.ts", "SKILL.md", "LICENSE"]) {
+    assert.ok(pkg.files.includes(path), `${path} must be packaged`);
+    assert.ok((await read(path)).length > 0);
   }
-  assert.match(await read("vendor/caveman/SKILL.md"), /^---\nname: caveman\n/);
-  assert.match(await read("vendor/caveman/LICENSE"), /MIT License/);
+  assert.match(await read("SKILL.md"), /^---\nname: caveman\n/);
+  assert.match(await read("LICENSE"), /MIT License/);
+  assert.match(await read("LICENSE"), /Copyright \(c\) 2026 Julius Brussee/);
+  assert.match(await read("LICENSE"), /5184b3d11ac6a1acb7d44b9bfaa31698157cff97/);
+  assert.ok(!pkg.files.some((path) => path.startsWith("vendor")));
+  await assert.rejects(access(new URL("vendor", root)), { code: "ENOENT" });
 });

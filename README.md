@@ -16,11 +16,11 @@ Make the [Pi coding agent](https://pi.dev) easier to read and listen to, especia
 
 ## Current focus
 
-Optional upstream Caveman ultra, enabled automatically on every Pi start. The extension injects the bundled skill before each agent run. No word cap or automatic rewriting yet.
+The adapted Caveman writing policy in [`SKILL.md`](SKILL.md), enabled automatically on every Pi start. Version `0.2.0` replaces the unmodified upstream skill with this single local policy; there are no intensity levels. The extension injects it before each agent run. No hard word cap or automatic rewriting.
+
+The priority is fewer words without losing requested coverage, meaning, or warnings. The policy retains Caveman's STE-inspired rules and adds targeted guidance for context, terminology, structure, and uncertainty. [Writing research](docs/research/writing.md) records the evidence and evaluation plan for issue #2. Reader benefits and model adherence still need testing; this is not a universally proven prompt.
 
 ## Install
-
-Once these package files are pushed to GitHub:
 
 ```sh
 pi install git:github.com/marcoazzurrini/pi-dyslexia
@@ -50,20 +50,15 @@ Run that command in your terminal, then restart Pi or run `/reload` in an existi
 pi update git:github.com/marcoazzurrini/pi-dyslexia
 ```
 
+For the `0.2.0` trial, start a fresh Pi session after updating so previous ultra instructions do not remain in the conversation. Run `/dyslexia caveman status`; the footer should show `caveman: on`. Use `/dyslexia caveman off` to compare normal prose. Updating the package does not update an already loaded extension until restart or `/reload`.
+
 This is a startup check, not a live GitHub push notification. It needs network access; `PI_OFFLINE` disables it. Pinned Git installs and local-path installs are excluded from update notifications. Do not edit the installed clone: Pi resets and cleans it during updates; make changes in this development repository instead.
 
 For Git packages, **commits trigger notifications, not version numbers or release tags**. Every push to `main` can become an update, even without a version bump. No custom notifier, GitHub webhook, or npm publication is needed.
 
 ## Versioning and releases
 
-`package.json` records the version, starting at `0.1.0`. Use patch versions for fixes, minor versions for features, and major versions for breaking changes. Keep unfinished work off `main`.
-
-After the initial package is tested and committed, mark its first release:
-
-```sh
-git tag -a v0.1.0 -m "Release v0.1.0"
-git push origin main --follow-tags
-```
+`package.json` records the current version. Use patch versions for fixes, minor versions for features, and major versions for breaking changes. Keep unfinished work off `main`.
 
 For subsequent releases, start from a clean, committed `main` checkout:
 
@@ -74,21 +69,21 @@ git push origin main --follow-tags
 
 Use `minor` or `major` instead of `patch` when appropriate. `npm version` runs our tests through `preversion`, updates the version, and creates a commit and version tag. It does not publish to npm. Tags identify releases; unpinned Pi installs still follow `main`, not the latest tag.
 
-This package-update flow is separate from checking JuliusBrussee's upstream Caveman skill for changes; that automation is not implemented yet.
+The adapted policy is maintained here. Package updates deliver reviewed local changes; there is no automatic synchronization with upstream Caveman.
 
 ## Caveman controls
 
 ```text
 /dyslexia caveman off      Use normal prose for this session
-/dyslexia caveman on       Enable upstream ultra again
+/dyslexia caveman on       Enable the adapted policy again
 /dyslexia caveman status   Show current state
 ```
 
-`/dyslexia` also shows the current state. A static footer indicator shows `caveman: ultra` or `caveman: off`.
+`/dyslexia` also shows the current state. A static footer indicator shows `caveman: on` or `caveman: off`.
 
-Caveman always starts **on**. Turning it off is temporary: restarting Pi, `/new`, `/resume`, `/fork`, or `/reload` enables ultra again. No preference file is written. Commands affect the next agent run, not a response already streaming. Saying "normal mode" does not change the extension's setting; use the off command.
+Caveman always starts **on**. Turning it off is temporary: restarting Pi, `/new`, `/resume`, `/fork`, or `/reload` enables the adapted policy again. No preference file is written. Commands affect the next agent run, not a response already streaming. Saying "normal mode" does not change the extension's setting; use the off command.
 
-The extension appends instructions; it does not rewrite stored messages or code. Model adherence is not guaranteed. Upstream ultra differs from the old extension's ultra: it discourages invented abbreviations and causal arrows. Meaningful uncertainty and safety warnings must be preserved.
+The extension appends instructions; it does not rewrite stored messages or code. Model adherence is not guaranteed. The adapted policy preserves meaningful uncertainty and safety warnings, discourages invented abbreviations and causal arrows, and allows compression only when relationships remain clear.
 
 ## Check
 
@@ -100,11 +95,13 @@ npm test
 
 No build step is required. Pi loads the TypeScript entry point directly.
 
-## Bundled Caveman
+## Policy source and license
 
-`vendor/caveman/SKILL.md` is copied unchanged from [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) at commit `5184b3d11ac6a1acb7d44b9bfaa31698157cff97`. Source paths and revision are recorded in `vendor/caveman/upstream.json`; upstream license and licensing scope are retained alongside the skill.
+[`SKILL.md`](SKILL.md) is adapted from [JuliusBrussee/caveman's skill](https://github.com/JuliusBrussee/caveman/blob/5184b3d11ac6a1acb7d44b9bfaa31698157cff97/skills/caveman/SKILL.md). It retains the core Rules and Auto-Clarity sections, integrates useful ultra rules, removes intensity switching, and adds the reviewed local changes. The original source revision is recorded in the file; this is a local adaptation, not an unchanged upstream copy.
 
-Only the MIT skill and its licensing documents are included, not the upstream engine or proxy. The skill is not registered separately with Pi; the extension controls activation. Automatic upstream update checks are not implemented yet.
+The upstream copyright and MIT permission notice are preserved in [`LICENSE`](LICENSE), scoped to the adapted skill. No upstream engine or proxy code is included. The old `vendor/` directory is removed.
+
+The package includes `index.ts`, `SKILL.md`, and `LICENSE`. The skill is not registered separately with Pi (`pi.skills` is empty); only the extension injects it and controls activation.
 
 ## How we work
 

@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import dyslexia from "../index.ts";
 
-test("ultra starts on, toggles between runs, and resets on every session load", async () => {
+test("adapted policy starts on, toggles between runs, and resets on every session load", async () => {
   const handlers = new Map();
   const commands = new Map();
   const statuses = [];
@@ -29,19 +29,24 @@ test("ultra starts on, toggles between runs, and resets on every session load", 
   const event = Object.freeze({ systemPrompt: "Existing instructions." });
   const prompt = () => handlers.get("before_agent_start")(event, ctx).systemPrompt;
   const command = (args) => commands.get("dyslexia").handler(args, ctx);
-  const skill = await readFile(new URL("../vendor/caveman/SKILL.md", import.meta.url), "utf8");
+  const skill = await readFile(new URL("../SKILL.md", import.meta.url), "utf8");
   const body = skill.slice(skill.indexOf("\n---\n") + 5).trim();
 
   const initial = prompt();
   assert.ok(initial.startsWith(`${event.systemPrompt}\n\n${body}`));
-  assert.match(initial, /Selected intensity: ultra, not the upstream default full/);
+  assert.match(initial, /Caveman is ON\. Use the adapted writing policy above/);
+  assert.match(initial, /\/dyslexia caveman on\|off\|status/);
   assert.match(initial, /Preserve meaningful uncertainty/);
+  assert.match(initial, /ASD-STE100 Simplified Technical English/);
+  assert.match(initial, /Never drop not\/never\/no\/only\/except/);
+  assert.match(initial, /Coverage: minimize words without silently dropping requested scope/);
+  assert.doesNotMatch(initial, /## Intensity|Selected intensity:|wenyan|vendor\//);
   assert.ok(!initial.includes("name: caveman"));
   assert.equal(prompt(), initial, "injection does not accumulate between runs");
   assert.equal(event.systemPrompt, "Existing instructions.");
 
   await handlers.get("session_start")({ reason: "startup" }, ctx);
-  assert.deepEqual(statuses.at(-1), ["dyslexia", "caveman: ultra"]);
+  assert.deepEqual(statuses.at(-1), ["dyslexia", "caveman: on"]);
   await command(" caveman   OFF ");
   assert.match(prompt(), /Caveman is OFF/);
   assert.ok(!prompt().includes(body));
@@ -56,6 +61,8 @@ test("ultra starts on, toggles between runs, and resets on every session load", 
   assert.match(prompt(), /Caveman is OFF/, "invalid commands leave state unchanged");
   await command("caveman on");
   assert.equal(prompt(), initial);
+  assert.deepEqual(statuses.at(-1), ["dyslexia", "caveman: on"]);
+  assert.deepEqual(notifications.at(-1), ["Caveman on.", "info"]);
 
   for (const reason of ["startup", "reload", "new", "resume", "fork"]) {
     await command("caveman off");
@@ -75,17 +82,21 @@ test("ultra starts on, toggles between runs, and resets on every session load", 
   assert.equal(prompt(), initial);
 });
 
-test("missing or malformed bundled skill fails loading instead of silently injecting bad text", async () => {
+test("missing or malformed root skill fails loading instead of silently injecting bad text", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pi-dyslexia-test-"));
   try {
     await copyFile(new URL("../index.ts", import.meta.url), join(dir, "index.ts"));
     const { default: load } = await import(pathToFileURL(join(dir, "index.ts")));
     await assert.rejects(load({}), { code: "ENOENT" });
-    await mkdir(join(dir, "vendor/caveman"), { recursive: true });
     for (const content of ["no frontmatter", "---\nname: caveman\n---\n  "]) {
-      await writeFile(join(dir, "vendor/caveman/SKILL.md"), content);
-      await assert.rejects(load({}), /Invalid bundled Caveman skill/);
+      await writeFile(join(dir, "SKILL.md"), content);
+      await assert.rejects(load({}), /Invalid SKILL\.md/);
     }
+    await writeFile(join(dir, "SKILL.md"), "---\r\nname: caveman\r\n---\r\nRoot policy.\r\n");
+    const handlers = new Map();
+    await load({ on: (name, handler) => handlers.set(name, handler), registerCommand() {} });
+    const result = handlers.get("before_agent_start")({ systemPrompt: "Base." });
+    assert.ok(result.systemPrompt.startsWith("Base.\n\nRoot policy.\n\n"));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -1,8 +1,7 @@
-Scope note: this MIT license covers this repository except Engine-linked
-directories listed in LICENSING.md (engine/, proxy/, rewriter/,
-browse/, mcp/, shrink/, cavemem Go core, shared/platform/), which are licensed
-under Business Source License 1.1 — see LICENSE.BSL. New Engine-linked runtime
-modules default to BSL-1.1 unless explicitly classified as MIT.
+This notice applies to SKILL.md, which is adapted from the MIT-licensed
+skills/caveman/SKILL.md in https://github.com/JuliusBrussee/caveman at commit
+5184b3d11ac6a1acb7d44b9bfaa31698157cff97. No upstream engine or proxy code is
+included. This notice does not assign a license to other project files.
 
 MIT License
 

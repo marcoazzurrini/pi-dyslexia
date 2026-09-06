@@ -1,15 +1,21 @@
 {
   "name": "pi-dyslexia",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Personal reading and listening preferences for Pi.",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/marcoazzurrini/pi-dyslexia.git"
   },
-  "files": ["index.ts", "vendor"],
+  "files": [
+    "index.ts",
+    "SKILL.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node --experimental-strip-types --test test/*.test.mjs",
     "preversion": "npm test"
@@ -18,7 +24,9 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "pi": {
-    "extensions": ["./index.ts"],
+    "extensions": [
+      "./index.ts"
+    ],
     "skills": []
   }
 }
