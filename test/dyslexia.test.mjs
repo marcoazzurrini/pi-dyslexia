@@ -34,8 +34,10 @@ test("adapted policy starts on, toggles between runs, and resets on every sessio
 
   const initial = prompt();
   assert.ok(initial.startsWith(`${event.systemPrompt}\n\n${body}`));
-  assert.match(initial, /Caveman is ON\. Use the adapted writing policy above/);
-  assert.match(initial, /\/dyslexia caveman on\|off\|status/);
+  assert.match(initial, /pi-dyslexia is ON\. Apply the writing policy above/);
+  assert.match(initial, /\/dyslexia on\|off\|status/);
+  assert.doesNotMatch(initial.slice(initial.indexOf("## pi-dyslexia state")), /caveman/i);
+  assert.doesNotMatch(commands.get("dyslexia").description, /caveman/i);
   assert.match(initial, /Preserve meaningful uncertainty/);
   assert.match(initial, /ASD-STE100 Simplified Technical English/);
   assert.match(initial, /Never drop not\/never\/no\/only\/except/);
@@ -46,26 +48,34 @@ test("adapted policy starts on, toggles between runs, and resets on every sessio
   assert.equal(event.systemPrompt, "Existing instructions.");
 
   await handlers.get("session_start")({ reason: "startup" }, ctx);
-  assert.deepEqual(statuses.at(-1), ["dyslexia", "caveman: on"]);
-  await command(" caveman   OFF ");
-  assert.match(prompt(), /Caveman is OFF/);
+  assert.deepEqual(statuses.at(-1), ["dyslexia", "dyslexia: on"]);
+  await command("  OFF  ");
+  assert.match(prompt(), /pi-dyslexia is OFF/);
+  assert.doesNotMatch(prompt(), /caveman/i);
   assert.ok(!prompt().includes(body));
-  assert.deepEqual(statuses.at(-1), ["dyslexia", "caveman: off"]);
-  for (const args of ["", "caveman", "caveman status"]) {
+  assert.deepEqual(statuses.at(-1), ["dyslexia", "dyslexia: off"]);
+  for (const args of ["", "status", "  STATUS  "]) {
     await command(args);
-    assert.deepEqual(notifications.at(-1), ["Caveman off.", "info"]);
-    assert.match(prompt(), /Caveman is OFF/);
+    assert.deepEqual(notifications.at(-1), ["pi-dyslexia off.", "info"]);
+    assert.match(prompt(), /pi-dyslexia is OFF/);
   }
-  await command("caveman off extra");
-  assert.equal(notifications.at(-1)[1], "error");
-  assert.match(prompt(), /Caveman is OFF/, "invalid commands leave state unchanged");
-  await command("caveman on");
+  for (const args of ["off extra", "caveman", "caveman on", "caveman off", "caveman status"]) {
+    await command(args);
+    assert.deepEqual(notifications.at(-1), ["Usage: /dyslexia on|off|status", "error"]);
+    assert.match(prompt(), /pi-dyslexia is OFF/, "invalid commands leave state unchanged");
+  }
+  await command("on");
   assert.equal(prompt(), initial);
-  assert.deepEqual(statuses.at(-1), ["dyslexia", "caveman: on"]);
-  assert.deepEqual(notifications.at(-1), ["Caveman on.", "info"]);
+  assert.deepEqual(statuses.at(-1), ["dyslexia", "dyslexia: on"]);
+  assert.deepEqual(notifications.at(-1), ["pi-dyslexia on.", "info"]);
+  for (const args of ["", "status"]) {
+    await command(args);
+    assert.equal(prompt(), initial, "status queries do not toggle the policy");
+    assert.deepEqual(notifications.at(-1), ["pi-dyslexia on.", "info"]);
+  }
 
   for (const reason of ["startup", "reload", "new", "resume", "fork"]) {
-    await command("caveman off");
+    await command("off");
     await handlers.get("session_start")({ reason }, ctx);
     assert.equal(prompt(), initial, reason);
   }
@@ -73,9 +83,9 @@ test("adapted policy starts on, toggles between runs, and resets on every sessio
   // UI must never be accessed in print/JSON mode.
   const headless = { hasUI: false };
   await handlers.get("session_start")({ reason: "startup" }, headless);
-  await commands.get("dyslexia").handler("caveman off", headless);
+  await commands.get("dyslexia").handler("off", headless);
   await commands.get("dyslexia").handler("invalid", headless);
-  assert.match(prompt(), /Caveman is OFF/);
+  assert.match(prompt(), /pi-dyslexia is OFF/);
 
   // A new extension instance must not remember the previous instance's off state.
   await dyslexia(api);

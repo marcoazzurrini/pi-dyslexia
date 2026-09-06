@@ -16,7 +16,7 @@ Make the [Pi coding agent](https://pi.dev) easier to read and listen to, especia
 
 ## Current focus
 
-The adapted Caveman writing policy in [`SKILL.md`](SKILL.md), enabled automatically on every Pi start. Version `0.2.0` replaces the unmodified upstream skill with this single local policy; there are no intensity levels. The extension injects it before each agent run. No hard word cap or automatic rewriting.
+The project's writing policy in [`SKILL.md`](SKILL.md), enabled automatically on every Pi start. Version `0.2.0` replaces the unmodified upstream skill with this single local policy; there are no intensity levels. The extension injects it before each agent run. No hard word cap or automatic rewriting.
 
 The priority is fewer words without losing requested coverage, meaning, or warnings. The policy retains Caveman's STE-inspired rules and adds targeted guidance for context, terminology, structure, and uncertainty. [Writing research](docs/research/writing.md) records the evidence and evaluation plan for issue #2. Reader benefits and model adherence still need testing; this is not a universally proven prompt.
 
@@ -50,7 +50,7 @@ Run that command in your terminal, then restart Pi or run `/reload` in an existi
 pi update git:github.com/marcoazzurrini/pi-dyslexia
 ```
 
-For the `0.2.0` trial, start a fresh Pi session after updating so previous ultra instructions do not remain in the conversation. Run `/dyslexia caveman status`; the footer should show `caveman: on`. Use `/dyslexia caveman off` to compare normal prose. Updating the package does not update an already loaded extension until restart or `/reload`.
+Start a fresh Pi session after updating so previous style instructions do not remain in the conversation. Run `/dyslexia status`; the footer should show `dyslexia: on`. Use `/dyslexia off` to compare normal prose. Updating the package does not update an already loaded extension until restart or `/reload`.
 
 This is a startup check, not a live GitHub push notification. It needs network access; `PI_OFFLINE` disables it. Pinned Git installs and local-path installs are excluded from update notifications. Do not edit the installed clone: Pi resets and cleans it during updates; make changes in this development repository instead.
 
@@ -71,17 +71,19 @@ Use `minor` or `major` instead of `patch` when appropriate. `npm version` runs o
 
 The adapted policy is maintained here. Package updates deliver reviewed local changes; there is no automatic synchronization with upstream Caveman.
 
-## Caveman controls
+## Writing-policy controls
 
 ```text
-/dyslexia caveman off      Use normal prose for this session
-/dyslexia caveman on       Enable the adapted policy again
-/dyslexia caveman status   Show current state
+/dyslexia off      Use normal prose for this session
+/dyslexia on       Enable the writing policy again
+/dyslexia status   Show current state
 ```
 
-`/dyslexia` also shows the current state. A static footer indicator shows `caveman: on` or `caveman: off`.
+`/dyslexia` also shows the current state. A static footer indicator shows `dyslexia: on` or `dyslexia: off`.
 
-Caveman always starts **on**. Turning it off is temporary: restarting Pi, `/new`, `/resume`, `/fork`, or `/reload` enables the adapted policy again. No preference file is written. Commands affect the next agent run, not a response already streaming. Saying "normal mode" does not change the extension's setting; use the off command.
+Version `0.3.0` replaces version `0.2.0`'s `/dyslexia caveman ...` commands with the commands above. The old syntax shows the new usage without changing state. Installed `0.2.0` copies keep the old commands until updated and reloaded.
+
+The writing policy always starts **on**. Turning it off is temporary: restarting Pi, `/new`, `/resume`, `/fork`, or `/reload` enables the adapted policy again. No preference file is written. Commands affect the next agent run, not a response already streaming. Saying "normal mode" does not change the extension's setting; use the off command.
 
 The extension appends instructions; it does not rewrite stored messages or code. Model adherence is not guaranteed. The adapted policy preserves meaningful uncertainty and safety warnings, discourages invented abbreviations and causal arrows, and allows compression only when relationships remain clear.
 
