@@ -18,7 +18,7 @@ Make the [Pi coding agent](https://pi.dev) easier to read and listen to, especia
 
 The project's writing policy in [`SKILL.md`](SKILL.md), enabled automatically on every Pi start. Version `0.2.0` replaces the unmodified upstream skill with this single local policy; there are no intensity levels. The extension injects it before each agent run. No hard word cap or automatic rewriting.
 
-The priority is fewer words without losing requested coverage, meaning, or warnings. The policy retains Caveman's STE-inspired rules and adds targeted guidance for context, terminology, structure, and uncertainty. [Writing research](docs/research/writing.md) records the evidence and evaluation plan for issue #2. Reader benefits and model adherence still need testing; this is not a universally proven prompt.
+The policy prioritizes total response length: target under 120 words of chat prose per turn, including research summaries. This is a soft target, not a quota or enforced limit. Explicitly requested detail and essential completeness, clarity, or safety can require more; code and requested documents remain intact. Summaries retain main conclusions, decision-changing evidence and citations, conditions, uncertainty, and warnings. The policy retains Caveman's STE-inspired rules and adds targeted guidance for context, terminology, structure, and uncertainty. [Writing research](docs/research/writing.md) records the evidence and evaluation plan for issue #2. Reader benefits and model adherence still need testing; this is not a universally proven prompt.
 
 ## Install
 
