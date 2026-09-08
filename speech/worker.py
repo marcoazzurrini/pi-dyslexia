@@ -1,6 +1,7 @@
 """Offline Kokoro synthesis worker. JSON lines in/out; no playback or transcript logs."""
 
 import contextlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -13,17 +14,34 @@ REVISION = "a71e4d38b236d968966a2002c4c895dbd12b1c3c"
 PATTERNS = ["*.json", "*.safetensors", "voices/*.safetensors"]
 
 
-def load(download=False):
+def model_path(download=False):
     os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
     os.environ["HF_HUB_OFFLINE"] = "0" if download else "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "0" if download else "1"
+    from huggingface_hub import snapshot_download
+    return Path(snapshot_download(MODEL, revision=REVISION,
+                                  allow_patterns=PATTERNS, local_files_only=not download))
+
+
+def check():
+    # ponytail: startup checks installed files, not inference; playback still reports damaged or incompatible runtimes.
+    for module in ("mlx", "mlx_audio", "misaki", "spacy", "numpy", "huggingface_hub", "sounddevice", "en_core_web_sm"):
+        if importlib.util.find_spec(module) is None:
+            raise RuntimeError(f"Missing {module}. Use /speech setup in Pi.")
+    path = model_path()
+    files = [path / "config.json", *(path / "voices" / f"{voice}.safetensors"
+             for voice in ("af_heart", "af_bella", "am_michael", "bf_emma", "bm_george"))]
+    weights = list(path.glob("*.safetensors"))
+    if not weights or any(not file.is_file() or file.stat().st_size == 0 for file in [*files, *weights]):
+        raise RuntimeError("The voice model is incomplete. Use /speech setup in Pi.")
+
+
+def load(download=False):
+    path = model_path(download)
     import spacy.util
     if not spacy.util.is_package("en_core_web_sm"):
-        raise RuntimeError("Run speech/setup.sh first; the English dictionary is missing.")
-    from huggingface_hub import snapshot_download
+        raise RuntimeError("The English dictionary is missing. Use /speech setup in Pi.")
     from mlx_audio.tts.utils import load_model
-    path = Path(snapshot_download(MODEL, revision=REVISION,
-                                 allow_patterns=PATTERNS, local_files_only=not download))
     return load_model(str(path), model_type="kokoro"), path
 
 
@@ -108,6 +126,9 @@ def main():
     os.umask(0o077)
     if len(sys.argv) == 3 and sys.argv[1] == "--play":
         play(Path(sys.argv[2]))
+        return
+    if sys.argv[1:] == ["--check"]:
+        check()
         return
     if sys.argv[1:] == ["--download"]:
         _, path = load(download=True)

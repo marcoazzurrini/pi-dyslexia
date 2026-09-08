@@ -17,6 +17,7 @@ function fakeAudio({ deferGeneration = false } = {}) {
   const generated = [], played = [];
   return {
     generated, played, closed: false,
+    async checkReady() { return true; },
     generate(text, settings, signal) {
       const deferred = Promise.withResolvers();
       generated.push({ text, settings, signal, ...deferred });
@@ -152,7 +153,7 @@ for (const agentDir of [".pi/agent", "custom-agent"]) test(`extension gates auto
   await writeFile(legacyConfig, JSON.stringify(legacySettings));
   const audio = fakeAudio();
   const originals = {};
-  for (const method of ["generate", "play", "close"]) {
+  for (const method of ["checkReady", "generate", "play", "close"]) {
     originals[method] = LocalAudio.prototype[method];
     LocalAudio.prototype[method] = audio[method].bind(audio);
   }

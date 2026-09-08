@@ -1,9 +1,10 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 export type VoiceSettings = { voice: string; speed: number };
 export const python = join(homedir(), ".cache/pi-dyslexia/venv/bin/python");
@@ -19,6 +20,50 @@ export class LocalAudio {
   private counter = 0;
   private cache = new Map<string, { path: string; bytes: number }>();
   private closed = false;
+
+  async install(signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    await new Promise<void>((resolve, reject) => {
+      let timedOut = false;
+      let output = "";
+      const child = spawn("sh", [fileURLToPath(new URL("setup.sh", import.meta.url))], {
+        detached: true, stdio: ["ignore", "pipe", "pipe"],
+      });
+      const stop = () => {
+        if (child.pid) {
+          try { process.kill(-child.pid, "SIGKILL"); } catch { /* The process group already exited. */ }
+        }
+      };
+      const timer = setTimeout(() => { timedOut = true; stop(); }, 20 * 60_000);
+      signal.addEventListener("abort", stop, { once: true });
+      if (signal.aborted) stop();
+      for (const stream of [child.stdout!, child.stderr!]) {
+        stream.setEncoding("utf8");
+        stream.on("data", (chunk: string) => { output = (output + chunk).slice(-1500); });
+      }
+      child.once("error", reject);
+      child.once("exit", stop); // Clean up descendants if the shell exits early.
+      child.once("close", (code) => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", stop);
+        if (signal.aborted) reject(signal.reason);
+        else if (code !== 0) reject(new Error(timedOut ? "Setup timed out." : output.trim() || "The installer exited without completing."));
+        else resolve();
+      });
+    });
+  }
+
+  async checkReady(signal?: AbortSignal): Promise<boolean> {
+    try {
+      await promisify(execFile)(python, [workerPath, "--check"], {
+        signal, timeout: 30_000,
+        env: { ...process.env, HF_HUB_OFFLINE: "1", HF_HUB_DISABLE_TELEMETRY: "1", TRANSFORMERS_OFFLINE: "1" },
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   private track(child: ChildProcess): void {
     const done = new Promise<void>((resolve) => child.once("close", () => {
@@ -58,11 +103,11 @@ export class LocalAudio {
         fail(new Error("Invalid speech worker response."));
       }
     });
-    child.on("error", () => fail(new Error("Speech is not installed. Run speech/setup.sh from this package.")));
+    child.on("error", () => fail(new Error("Read-aloud could not start. Use /speech setup in Pi to install or repair it. Text responses still work.")));
     child.stdin!.on("error", () => fail(new Error("Speech worker input closed.")));
     child.on("close", () => {
       lines.close();
-      fail(new Error("Speech worker exited. Run speech/setup.sh; then try again."));
+      fail(new Error("Read-aloud stopped unexpectedly. Use /speech setup in Pi to check or repair it. Text responses still work."));
     });
     return child;
   }

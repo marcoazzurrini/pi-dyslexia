@@ -10,6 +10,7 @@ export const voices = ["af_heart", "af_bella", "am_michael", "bf_emma", "bm_geor
 const defaults = { auto: true, speed: 1, voice: "af_heart", includeAll: false };
 const configPath = join(getAgentDir(), "pi-dyslexia", "speech.json");
 const legacyConfigPath = join(homedir(), ".config/pi-dyslexia/speech.json");
+const setupPromptPath = join(dirname(configPath), "speech-setup-prompted");
 type Settings = typeof defaults;
 
 export function validateSettings(value: unknown): Settings {
@@ -39,19 +40,31 @@ export default function speech(pi: ExtensionAPI): void {
   let armed = false;
   let newer = false;
   let saving = Promise.resolve();
+  let ready = false;
+  let autoBlocked = false;
+  let setupTask: Promise<void> | undefined;
+  let setupController: AbortController | undefined;
+  let sessionController: AbortController | undefined;
 
   const notify = (message: string, type: "info" | "error" = "info") => ctx?.ui.notify(message, type);
+  const reportError = (message: string) => {
+    autoBlocked = true;
+    notify(`${message}\nAutomatic read-aloud is paused for this session. Text responses still work.`, "error");
+  };
   const update = () => {
     if (!ctx || !player) return;
     const p = player;
     const actions = [p.busy ? (p.state === "paused" ? "Resume" : "Pause") : "Play", "Replay", "Stop", "Previous"];
     const controls = actions.map((name) => `[${name}]`).join(" ");
-    const label = `Speech: ${p.state} | ${settings.speed}x | auto ${settings.auto ? "on" : "off"}${newer ? " | newer answer: /speech latest" : ""}`;
+    const state = setupTask ? "setting up" : !ready ? "setup needed" : p.state;
+    const label = `Speech: ${state} | ${settings.speed}x | auto ${!ready || setupTask ? "inactive" : autoBlocked ? "paused" : settings.auto ? "on" : "off"}${newer ? " | newer answer: /speech latest" : ""}`;
     ctx.ui.setWidget("dyslexia-speech", () => ({
-      render: (width: number) => [label.slice(0, width), `${controls}  /speech${settings.includeAll ? " | includes code/URLs" : " | skips code/URLs (announced)"}`.slice(0, width)],
+      render: (width: number) => [label.slice(0, width), (setupTask ? "Downloading and installing. Text responses still work."
+        : !ready ? "Text responses work. Use /speech setup to enable read-aloud."
+        : `${controls}  /speech${settings.includeAll ? " | includes code/URLs" : " | skips code/URLs (announced)"}`).slice(0, width)],
       invalidate() {},
       handleMouse(event) {
-        if (event.type !== "click" || event.button !== "left" || event.y !== 1) return;
+        if (!ready || setupTask || event.type !== "click" || event.button !== "left" || event.y !== 1) return;
         let x = 0;
         for (let i = 0; i < actions.length; i++) {
           const end = x + actions[i].length + 2;
@@ -65,12 +78,20 @@ export default function speech(pi: ExtensionAPI): void {
     }));
   };
 
+  const createPlayer = () => {
+    const p = new SpeechPlayer(new LocalAudio(), update, reportError);
+    p.settings = { voice: settings.voice, speed: settings.speed };
+    p.includeAll = settings.includeAll;
+    return p;
+  };
+
   const branchAnswers = () => ctx?.sessionManager.getBranch().map(answerFromEntry).filter((a): a is Answer => !!a) ?? [];
   const readLatest = () => {
     latest = branchAnswers().at(-1);
     newer = false;
   };
   const select = (answer: Answer | undefined, index = 0) => {
+    if (!ready || setupTask) { notify(setupTask ? "Read-aloud setup is running." : "Read-aloud needs setup. Use /speech setup in Pi. Text responses still work."); return; }
     if (!answer || !player) { notify("No completed answer to read."); return; }
     newer = !!latest && answer.id !== latest.id;
     player.start(answer, index);
@@ -94,12 +115,51 @@ export default function speech(pi: ExtensionAPI): void {
     await pending;
   };
 
+  async function setup(): Promise<void> {
+    if (setupTask) { notify("Read-aloud setup is already running."); return; }
+    const context = ctx;
+    if (!context) return;
+    const controller = new AbortController();
+    setupController = controller;
+    setupTask = (async () => {
+      const consent = await context.ui.confirm("Set up read-aloud?",
+        "This downloads and runs uv from astral.sh if needed, and installs Python 3.12, speech dependencies, the English dictionary, and the Kokoro voice model.\nInternet access and disk space are required. Setup may take several minutes. No administrator access or shell profile changes.\nAfter setup, narration stays local. No audio plays during setup.",
+        { signal: controller.signal });
+      if (!consent || controller.signal.aborted || ctx !== context) return;
+      ready = false;
+      await player?.close();
+      if (controller.signal.aborted || ctx !== context) return;
+      player = createPlayer();
+      update();
+      notify("Setting up read-aloud. Downloading and installing may take several minutes. Text responses still work.");
+      const audio = new LocalAudio();
+      await audio.install(controller.signal);
+      if (controller.signal.aborted || ctx !== context) return;
+      const installed = await audio.checkReady(controller.signal);
+      if (controller.signal.aborted || ctx !== context) return;
+      ready = installed;
+      if (!ready) throw new Error("The downloaded speech files did not pass the readiness check.");
+      autoBlocked = false;
+      notify(`Read-aloud is ready. Use /speech preview to try it. Automatic narration is ${settings.auto ? "on for future answers" : "off"}.`);
+    })().catch((error) => {
+      if (!controller.signal.aborted && ctx === context) {
+        notify(`Read-aloud setup did not finish. Text responses still work.\n${error instanceof Error ? error.message : "Setup failed."}\nUse /speech setup to retry.`, "error");
+      }
+    }).finally(() => {
+      setupTask = undefined;
+      setupController = undefined;
+      if (ctx === context) update();
+    });
+    await setupTask;
+  }
+
   async function command(args: string): Promise<void> {
     if (!ctx || !player) return;
     const [action = "", value, ...extra] = args.trim().split(/\s+/);
     if (extra.length) throw new Error("Use /speech help for controls.");
     if (!["auto", "speed", "voice", "include"].includes(action) && value) throw new Error("Use /speech help for controls.");
     switch (action) {
+      case "setup": await setup(); break;
       case "":
         if (player.busy) player.toggle();
         else select(player.answer ?? latest);
@@ -115,16 +175,16 @@ export default function speech(pi: ExtensionAPI): void {
         player = undefined;
         await old.close();
         if (!ctx) return;
-        player = new SpeechPlayer(new LocalAudio(), update, (message) => notify(message, "error"));
-        player.settings = { voice: settings.voice, speed: settings.speed };
-        player.includeAll = settings.includeAll;
+        player = createPlayer();
         update();
         break;
       }
       case "auto":
         if (value !== "on" && value !== "off") throw new Error("Usage: /speech auto on|off");
         await save({ auto: value === "on" });
-        notify(`Automatic speech ${value}. Applies to future completed answers.`);
+        autoBlocked = false;
+        update();
+        notify(ready ? `Automatic speech ${value}. Applies to future completed answers.` : `Automatic speech preference saved: ${value}. Read-aloud stays inactive until you complete /speech setup.`);
         break;
       case "speed":
         if (!value || !Number.isFinite(Number(value)) || Number(value) < 0.5 || Number(value) > 2) throw new Error("Usage: /speech speed 0.5–2");
@@ -152,20 +212,24 @@ export default function speech(pi: ExtensionAPI): void {
         if (chosen) select(answers[labels.indexOf(chosen)]);
         break;
       }
-      case "status": notify(`Speech: ${player.state}; auto ${settings.auto ? "on" : "off"}; ${settings.voice}; ${settings.speed}x. Settings: ${configPath}`); break;
+      case "status": notify(`Speech: ${setupTask ? "setting up" : ready ? player.state : "setup needed (/speech setup)"}; auto ${!ready || setupTask ? "inactive" : autoBlocked ? "paused" : settings.auto ? "on" : "off"}; ${settings.voice}; ${settings.speed}x. Settings: ${configPath}`); break;
       case "help":
-        notify("/speech [latest|replay|previous|stop|off|answers|preview|status]\n/speech auto on|off; speed 0.5–2; voice [preset]; include all|prose\nCtrl+Alt+S: play/pause. Ctrl+Alt+R: replay. Ctrl+Alt+X: stop.\nClick controls in fullscreen mode. Speech supports English on Apple Silicon macOS.");
+        notify("/speech setup: install or repair local read-aloud with your permission.\n/speech [latest|replay|previous|stop|off|answers|preview|status]\n/speech auto on|off; speed 0.5–2; voice [preset]; include all|prose\nCtrl+Alt+S: play/pause. Ctrl+Alt+R: replay. Ctrl+Alt+X: stop.\nClick controls in fullscreen mode. Speech supports English on Apple Silicon macOS.");
         break;
       default: throw new Error("Unknown speech command. Use /speech help.");
     }
   }
 
   pi.registerCommand("speech", {
-    description: "Local narration: play/pause, replay, stop, auto, speed, voice, answers, help",
-    getArgumentCompletions: (prefix) => ["latest", "replay", "previous", "stop", "off", "answers", "preview", "status", "help", "auto on", "auto off", "speed 1.25", "speed 1.5", "voice", "include all", "include prose"]
+    description: "Local narration: setup, play/pause, replay, stop, auto, speed, voice, answers, help",
+    getArgumentCompletions: (prefix) => ["setup", "latest", "replay", "previous", "stop", "off", "answers", "preview", "status", "help", "auto on", "auto off", "speed 1.25", "speed 1.5", "voice", "include all", "include prose"]
       .filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value })),
     handler: async (args, context) => {
       if (context.mode !== "tui") return;
+      if (process.platform !== "darwin" || process.arch !== "arm64") {
+        context.ui.notify("Read-aloud currently requires an Apple Silicon Mac. Text responses still work.", "info");
+        return;
+      }
       try { await command(args); } catch (error) { notify(error instanceof Error ? error.message : "Speech command failed.", "error"); }
     },
   });
@@ -184,6 +248,12 @@ export default function speech(pi: ExtensionAPI): void {
       return;
     }
     ctx = context;
+    const controller = new AbortController();
+    sessionController = controller;
+    const installed = await new LocalAudio().checkReady(controller.signal);
+    if (controller.signal.aborted || ctx !== context) return;
+    ready = installed;
+    autoBlocked = false;
     settings = { ...defaults };
     try {
       const contents = await readFile(configPath, "utf8").catch((error: NodeJS.ErrnoException) => {
@@ -198,12 +268,30 @@ export default function speech(pi: ExtensionAPI): void {
         notify("Cannot read speech settings; using manual playback defaults.", "error");
       }
     }
-    player = new SpeechPlayer(new LocalAudio(), update, (message) => notify(message, "error"));
-    player.settings = { voice: settings.voice, speed: settings.speed };
-    player.includeAll = settings.includeAll;
+    player = createPlayer();
     armed = false;
     readLatest();
     update();
+    if (!ready) {
+      try {
+        await readFile(setupPromptPath);
+        return;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          notify("Read-aloud needs setup. Use /speech setup when you want to enable it.");
+          return;
+        }
+      }
+      const choice = await context.ui.select("Read-aloud needs a one-time download. Text responses already work.", ["Set up read-aloud", "Not now"], { signal: controller.signal });
+      if (controller.signal.aborted || ctx !== context) return;
+      try {
+        await mkdir(dirname(setupPromptPath), { recursive: true, mode: 0o700 });
+        await writeFile(setupPromptPath, "", { mode: 0o600 });
+      } catch {
+        notify("Could not remember your setup choice. The prompt may appear again next time.");
+      }
+      if (choice === "Set up read-aloud") await setup();
+    }
   });
   pi.on("input", (event) => {
     if (event.source === "interactive") player?.stop();
@@ -224,7 +312,7 @@ export default function speech(pi: ExtensionAPI): void {
     if (!answer || answer.id === latest?.id) return;
     latest = answer;
     newer = !!player.answer && player.answer.id !== answer.id;
-    if (settings.auto && !player.busy) select(answer);
+    if (ready && !setupTask && !autoBlocked && settings.auto && !player.busy) select(answer);
     else update();
   });
   pi.on("session_tree", () => {
@@ -239,6 +327,11 @@ export default function speech(pi: ExtensionAPI): void {
     ctx = undefined;
     player = undefined;
     armed = false;
+    ready = false;
+    sessionController?.abort();
+    sessionController = undefined;
+    setupController?.abort();
+    await setupTask;
     await old?.close();
     await saving;
   });

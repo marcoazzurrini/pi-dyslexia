@@ -91,18 +91,22 @@ The extension appends instructions; it does not rewrite stored messages or code.
 
 Version `0.4.0` adds local narration alongside the writing policy. It requires **Apple Silicon macOS, Pi 0.85.1 or newer, and English text**. Kokoro + MLX-Audio is the trial engine; [local measurements and remaining evaluation](docs/research/speech.md) are recorded separately. Listening comfort and technical pronunciation still need your assessment.
 
-After installing or updating this package, run the one-time setup from its checkout, then start Pi:
+After installing or updating this package, start Pi normally. If read-aloud is not ready, Pi offers **Set up read-aloud** or **Not now**. Text responses work without speech setup. Choosing **Not now** (or dismissing the prompt) is remembered; you will not get an error after each answer.
 
-```sh
-npm run setup:speech
-pi --tui-mode fullscreen
+To start setup later, or repair an incomplete installation, type this **inside Pi**, from any project:
+
+```text
+/speech setup
 ```
 
-Setup requires [uv](https://docs.astral.sh/uv/) and explicitly downloads Python dependencies, the English dictionary, and the pinned Kokoro model. It installs the runtime in `~/.cache/pi-dyslexia/venv`; model files use Hugging Face's cache. Nothing downloads when Pi loads the extension. Setup does not play audio. The runtime and model are already installed on the development Mac used for the benchmark.
+Setup explains the downloads and asks for permission before running anything. It installs [uv](https://docs.astral.sh/uv/) from its official installer if needed, prepares Python 3.12, installs speech dependencies and the English dictionary, and downloads the pinned Kokoro model. It requires internet access and disk space and may take several minutes. No administrator access or shell profile changes are required. Pi shows setup status and a retry command if installation fails. Exiting or reloading Pi cancels its running installer.
+
+The runtime lives in `~/.cache/pi-dyslexia/venv`; a bootstrapped uv lives in `~/.cache/pi-dyslexia/bin`. Model files use Hugging Face's cache. Startup checks installed dependencies and model files offline, without loading the voice model or playing audio. Nothing downloads without setup consent. Setup itself does not play audio or read previous answers; it preserves any saved automatic-playback preference. Developers can also run `npm run setup:speech` from this checkout.
 
 The installed package loads both the writing and speech extensions automatically. Fullscreen mode enables clickable controls; ordinary `pi` still supports shortcuts and commands. Restart Pi after updating. For development against an older installed package, use `npm install --legacy-peer-deps` and `pi -e ./speech/index.ts` from this repository. Do not add that entry point when the installed package already includes speech, or it will load twice.
 
 ```text
+/speech setup         Install or repair read-aloud; explain downloads and ask permission
 /speech auto on       Narrate future completed answers automatically; save preference
 /speech              Play the selected/latest answer, or pause/resume active speech
 /speech replay       Restart the selected answer from the beginning
@@ -122,9 +126,9 @@ The installed package loads both the writing and speech extensions automatically
 
 **Shortcuts:** `Ctrl+Alt+S` plays/pauses, `Ctrl+Alt+R` replays, and `Ctrl+Alt+X` stops. Some terminals reserve these keys; slash commands remain available. Clickable controls work only in Pi fullscreen mode and do not replace the editor or footer.
 
-Automatic playback defaults to **on** when Pi opens. A saved `/speech auto off` preference is still respected. Invalid or unreadable settings fall back to manual playback. Preferences are stored in `~/.pi/agent/pi-dyslexia/speech.json`, independently of the writing policy. `/dyslexia off` does not stop speech. Loading a session never speaks old messages automatically. Narration starts only after Pi settles, not between tool calls. A new submitted prompt stops speech; typing alone does not. A paused or currently playing answer is not replaced by a newer answer; the widget offers `/speech latest` instead. There is no automatic backlog.
+Automatic playback defaults to **on**, but remains inactive until the speech readiness check passes. A saved `/speech auto off` preference is still respected. Invalid or unreadable settings fall back to manual playback. A playback failure pauses automatic narration for the session instead of repeating the error after every answer; use `/speech auto on` to retry automatically or `/speech setup` to repair the installation. Preferences are stored in `~/.pi/agent/pi-dyslexia/speech.json`, independently of the writing policy. `/dyslexia off` does not stop speech. Loading a session never speaks old messages automatically. Narration starts only after Pi settles, not between tool calls. A new submitted prompt stops speech; typing alone does not. A paused or currently playing answer is not replaced by a newer answer; the widget offers `/speech latest` instead. There is no automatic backlog.
 
-The settings path uses Pi's `getAgentDir()`, so `PI_CODING_AGENT_DIR` overrides the `~/.pi/agent` base directory. If the new file is missing, speech reads the old `~/.config/pi-dyslexia/speech.json` to preserve existing preferences. The next preference change saves to the new path; the old file remains untouched. `/speech status` shows the save path.
+The first-run setup choice is remembered in `~/.pi/agent/pi-dyslexia/speech-setup-prompted`, separately from playback preferences. The settings and setup-choice paths use Pi's `getAgentDir()`, so `PI_CODING_AGENT_DIR` overrides the `~/.pi/agent` base directory. If the new file is missing, speech reads the old `~/.config/pi-dyslexia/speech.json` to preserve existing preferences. The next preference change saves to the new path; the old file remains untouched. `/speech status` shows the save path.
 
 Speech reads a separate Markdown rendering, never an AI summary. The original message remains intact. Code blocks and URL destinations are skipped with spoken announcements by default. Inline identifiers are retained, tables are read row by row, and deleted text is identified as deleted. Speech is not a reliable way to copy code; use the original text for exact syntax. No word/sentence highlighting is implemented yet.
 
