@@ -3,9 +3,9 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { LocalAudio } from "../speech/audio.ts";
-import { SpeechPlayer } from "../speech/player.ts";
-import { speechChunks } from "../speech/text.ts";
+import { LocalAudio } from "../extensions/speech/audio.ts";
+import { SpeechPlayer } from "../extensions/speech/player.ts";
+import { speechChunks } from "../extensions/speech/text.ts";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 async function until(check) {
@@ -208,7 +208,7 @@ for (const agentDir of [".pi/agent", "custom-agent"]) test(`extension gates auto
     process.env.HOME = home;
     delete process.env.PI_CODING_AGENT_DIR;
     if (agentDir === "custom-agent") process.env.PI_CODING_AGENT_DIR = "~/custom-agent";
-    ({ default: speech, validateSettings, answerFromEntry } = await import(`../speech/index.ts?dir=${agentDir}`));
+    ({ default: speech, validateSettings, answerFromEntry } = await import(`../extensions/speech/index.ts?dir=${agentDir}`));
   } finally {
     for (const [key, value] of Object.entries(originalEnv)) {
       if (value === undefined) delete process.env[key];

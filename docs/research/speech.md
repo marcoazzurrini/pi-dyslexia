@@ -107,7 +107,7 @@ ffmpeg -i sample.wav -af atempo=1.25 sample-1.25.wav
 
 ## Runtime, licensing, and offline verification
 
-Selected versions: MLX-Audio 0.5.1, MLX 0.32.2, Misaki 0.9.4, spaCy 3.8.16, `en_core_web_sm` 3.8.0, sounddevice 0.5.6, and Kokoro snapshot `a71e4d38b236d968966a2002c4c895dbd12b1c3c`. Core dependencies are pinned in `speech/requirements.txt`; the observed full environment is recorded in the results artifact. Transitive dependencies are not fully locked by the setup script.
+Selected versions: MLX-Audio 0.5.1, MLX 0.32.2, Misaki 0.9.4, spaCy 3.8.16, `en_core_web_sm` 3.8.0, sounddevice 0.5.6, and Kokoro snapshot `a71e4d38b236d968966a2002c4c895dbd12b1c3c`. Core dependencies are pinned in `extensions/speech/requirements.txt`; the observed full environment is recorded in the results artifact. Transitive dependencies are not fully locked by the setup script.
 
 Sources inspected include the [MLX-Audio README](https://github.com/Blaizzy/mlx-audio), installed Kokoro model/pipeline source, [Kokoro JavaScript README](https://github.com/hexgrad/kokoro/blob/main/kokoro.js/README.md), [Pocket README](https://github.com/kyutai-labs/pocket-tts), and [VoxCPM2 MLX README](https://github.com/Blaizzy/mlx-audio/blob/main/mlx_audio/tts/models/voxcpm2/README.md).
 
@@ -125,7 +125,7 @@ The extension ships no model weights or Python environment. Setup is an explicit
 
 ## Implemented playback design
 
-The new `speech/index.ts` entry point is independent of the writing policy. It requires the documented APIs in Pi 0.85.1 or newer. The installed extension/TUI/keybinding/session-format documentation and the `status-line.ts` example were inspected, and both entry points passed the installed Pi extension loader.
+The new `extensions/speech/index.ts` entry point is independent of the writing policy. It requires the documented APIs in Pi 0.85.1 or newer. The installed extension/TUI/keybinding/session-format documentation and the `status-line.ts` example were inspected, and both entry points passed the installed Pi extension loader.
 
 - `/speech auto on|off` is a saved preference. Following the owner's later request, automatic playback now defaults to on when Pi opens, superseding #4's original manual-default proposal. An explicitly saved off preference remains off. Invalid or unreadable settings fall back to manual playback. This does not change `/dyslexia` behavior or narrate restored history.
 - `/speech` plays the selected answer, falling back to the latest answer before any selection. During playback/loading it pauses; when paused it resumes. `/speech latest` explicitly switches to a newer answer.

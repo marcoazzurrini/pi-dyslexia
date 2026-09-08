@@ -42,7 +42,7 @@ def main():
     import soundfile as sf
     model = voice = None
     if args.engine == "kokoro":
-        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "speech"))
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "extensions/speech"))
         import worker
         with contextlib.redirect_stdout(sys.stderr):
             model, path = worker.load()

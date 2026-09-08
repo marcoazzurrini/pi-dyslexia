@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
-import { LocalAudio } from "../speech/audio.ts";
+import { LocalAudio } from "../extensions/speech/audio.ts";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -17,7 +17,7 @@ test("first-run setup is optional, remembered, consented, retryable, and gates e
   try {
     process.env.HOME = home;
     delete process.env.PI_CODING_AGENT_DIR;
-    ({ default: speech } = await import(`../speech/index.ts?setup=${home}`));
+    ({ default: speech } = await import(`../extensions/speech/index.ts?setup=${home}`));
   } finally {
     for (const [key, value] of Object.entries(env)) {
       if (value === undefined) delete process.env[key];
@@ -192,8 +192,8 @@ test("installer bootstraps missing prerequisites without real downloads and canc
     await script("fake-installer", 'test "$UV_UNMANAGED_INSTALL" = "$HOME/.cache/pi-dyslexia/bin"\necho bootstrap >> "$HOME/log"\n/bin/mkdir -p "$UV_UNMANAGED_INSTALL"\n/bin/cp "$HOME/fake-uv" "$UV_UNMANAGED_INSTALL/uv"');
     await script("fake-uv", 'printf "uv:%s\\n" "$*" >> "$HOME/log"\nif [ "$1" = venv ]; then\n/bin/mkdir -p "$HOME/.cache/pi-dyslexia/venv/bin"\n/bin/cp "$HOME/fake-python" "$HOME/.cache/pi-dyslexia/venv/bin/python"\nfi');
     await script("fake-python", 'printf "python:%s\\n" "$*" >> "$HOME/log"\ncase "$*" in *--check*) exit "${FAIL_CHECK:-0}" ;; esac');
-    await copyFile(new URL("../speech/audio.ts", import.meta.url), join(home, "audio.ts"));
-    await copyFile(new URL("../speech/setup.sh", import.meta.url), join(home, "setup.sh"));
+    await copyFile(new URL("../extensions/speech/audio.ts", import.meta.url), join(home, "audio.ts"));
+    await copyFile(new URL("../extensions/speech/setup.sh", import.meta.url), join(home, "setup.sh"));
     process.env.HOME = home;
     process.env.PATH = join(home, "bin");
     delete process.env.FAIL_CHECK;

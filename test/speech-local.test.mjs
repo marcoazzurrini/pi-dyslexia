@@ -7,7 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { LocalAudio, python } from "../speech/audio.ts";
+import { LocalAudio, python } from "../extensions/speech/audio.ts";
 
 // Opt-in integration check: uses downloaded Kokoro, but plays only synthetic silence.
 test("local worker, cache, cancellation, silent player pause/resume and cleanup", {
@@ -27,7 +27,7 @@ trimmed = trim_initial_silence(pcm)
 assert np.array_equal(trimmed, pcm[520:]), 'retain 20 ms before even the quietest sample'
 assert np.array_equal(trim_initial_silence(pcm[900:]), pcm[900:]), 'never cut nonzero speech'
 assert np.array_equal(trim_initial_silence(np.zeros(1000, dtype='<i2')), np.zeros(1000, dtype='<i2'))
-`], { cwd: fileURLToPath(new URL("../speech", import.meta.url)), timeout: 10_000 });
+`], { cwd: fileURLToPath(new URL("../extensions/speech", import.meta.url)), timeout: 10_000 });
     const path = await audio.generate("Ready to read. Do not delete the backup.", settings, controller.signal);
     directory = dirname(path);
     assert.equal((await readFile(path)).toString("ascii", 0, 4), "RIFF");

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
-import dyslexia from "../index.ts";
+import dyslexia from "../extensions/index.ts";
 
 test("adapted policy starts on, toggles between runs, and resets on every session load", async () => {
   const handlers = new Map();
@@ -29,7 +29,7 @@ test("adapted policy starts on, toggles between runs, and resets on every sessio
   const event = Object.freeze({ systemPrompt: "Existing instructions." });
   const prompt = () => handlers.get("before_agent_start")(event, ctx).systemPrompt;
   const command = (args) => commands.get("dyslexia").handler(args, ctx);
-  const skill = await readFile(new URL("../SKILL.md", import.meta.url), "utf8");
+  const skill = await readFile(new URL("../extensions/SKILL.md", import.meta.url), "utf8");
   const body = skill.slice(skill.indexOf("\n---\n") + 5).trim();
 
   const initial = prompt();
@@ -94,10 +94,10 @@ test("adapted policy starts on, toggles between runs, and resets on every sessio
   assert.equal(prompt(), initial);
 });
 
-test("missing or malformed root skill fails loading instead of silently injecting bad text", async () => {
+test("missing or malformed extension policy fails loading instead of silently injecting bad text", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pi-dyslexia-test-"));
   try {
-    await copyFile(new URL("../index.ts", import.meta.url), join(dir, "index.ts"));
+    await copyFile(new URL("../extensions/index.ts", import.meta.url), join(dir, "index.ts"));
     const { default: load } = await import(pathToFileURL(join(dir, "index.ts")));
     await assert.rejects(load({}), { code: "ENOENT" });
     for (const content of ["no frontmatter", "---\nname: caveman\n---\n  "]) {

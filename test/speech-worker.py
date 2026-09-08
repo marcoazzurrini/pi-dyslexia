@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "speech"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "extensions/speech"))
 from worker import PlaybackBuffer, check
 
 buffer = PlaybackBuffer(b"\x01\x02\x03\x04\x05\x06")

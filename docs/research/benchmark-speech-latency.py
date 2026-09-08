@@ -23,7 +23,7 @@ import time
 import wave
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKER = ROOT / "speech/worker.py"
+WORKER = ROOT / "extensions/speech/worker.py"
 PASSAGES = [
     "Warning: do not delete the backup.",
     "Response time fell by 12.5 percent in a small test. This may not generalize to production.",

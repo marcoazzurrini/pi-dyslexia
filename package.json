@@ -12,18 +12,18 @@
     "url": "git+https://github.com/marcoazzurrini/pi-dyslexia.git"
   },
   "files": [
-    "index.ts",
-    "speech/*.ts",
-    "speech/worker.py",
-    "speech/setup.sh",
-    "speech/requirements.txt",
-    "SKILL.md",
+    "extensions/index.ts",
+    "extensions/speech/*.ts",
+    "extensions/speech/worker.py",
+    "extensions/speech/setup.sh",
+    "extensions/speech/requirements.txt",
+    "extensions/SKILL.md",
     "LICENSE"
   ],
   "scripts": {
     "test": "node --experimental-strip-types --test test/*.test.mjs",
     "test:speech-local": "python3 test/speech-worker.py && PI_DYSLEXIA_AUDIO_TEST=1 node --experimental-strip-types --test test/speech-local.test.mjs",
-    "setup:speech": "sh speech/setup.sh",
+    "setup:speech": "sh extensions/speech/setup.sh",
     "preversion": "npm test"
   },
   "peerDependencies": {
@@ -31,8 +31,8 @@
   },
   "pi": {
     "extensions": [
-      "./index.ts",
-      "./speech/index.ts"
+      "./extensions/index.ts",
+      "./extensions/speech/index.ts"
     ],
     "skills": []
   },

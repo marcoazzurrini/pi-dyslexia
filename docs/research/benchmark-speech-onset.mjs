@@ -7,8 +7,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir, platform, arch } from "node:os";
 import { join } from "node:path";
-import { LocalAudio, python } from "../../speech/audio.ts";
-import { SpeechPlayer } from "../../speech/player.ts";
+import { LocalAudio, python } from "../../extensions/speech/audio.ts";
+import { SpeechPlayer } from "../../extensions/speech/player.ts";
 
 const directory = await mkdtemp(join(tmpdir(), "pi-speech-onset-"));
 const silencePath = join(directory, "silence.wav");

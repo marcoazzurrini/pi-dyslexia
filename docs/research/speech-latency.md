@@ -23,21 +23,21 @@ Warm synthesis alone is fast: **95 ms** for a short sentence at the current 1.5Ã
 
 ## The baseline critical path
 
-1. [`speech/index.ts:304`](../../speech/index.ts#L304) waits for `agent_settled`, verifies an eligible completed answer, and calls `player.start()`.
-2. [`speech/text.ts:5`](../../speech/text.ts#L5) renders Markdown and segments sentences. Long sentences can reach 500 code points.
-3. [`speech/audio.ts:115`](../../speech/audio.ts#L115) checks the cache and lazily starts the synthesis worker. Session startup only checks installed files; it does not warm this worker.
-4. [`speech/worker.py:39`](../../speech/worker.py#L39) loads dependencies and model weights. The pronunciation pipeline is created lazily inside `generate()` at line 59.
+1. [`extensions/speech/index.ts:304`](../../extensions/speech/index.ts#L304) waits for `agent_settled`, verifies an eligible completed answer, and calls `player.start()`.
+2. [`extensions/speech/text.ts:5`](../../extensions/speech/text.ts#L5) renders Markdown and segments sentences. Long sentences can reach 500 code points.
+3. [`extensions/speech/audio.ts:115`](../../extensions/speech/audio.ts#L115) checks the cache and lazily starts the synthesis worker. Session startup only checks installed files; it does not warm this worker.
+4. [`extensions/speech/worker.py:39`](../../extensions/speech/worker.py#L39) loads dependencies and model weights. The pronunciation pipeline is created lazily inside `generate()` at line 59.
 5. The worker finishes the entire first chunk and closes the WAV before replying. This is not sample-level streaming.
-6. [`speech/audio.ts:176`](../../speech/audio.ts#L176) starts another Python process for playback. [`speech/worker.py:120`](../../speech/worker.py#L120) opens a new PortAudio output stream.
+6. [`extensions/speech/audio.ts:176`](../../extensions/speech/audio.ts#L176) starts another Python process for playback. [`extensions/speech/worker.py:120`](../../extensions/speech/worker.py#L120) opens a new PortAudio output stream.
 7. The audio device consumes the first buffers, including any quiet samples at the beginning of the generated speech.
 
 There is no five-second sleep or debounce in this path. The 120-second synthesis timeout is a failure deadline, not an intentional delay.
 
-The next-chunk prefetch in [`speech/player.ts:112`](../../speech/player.ts#L112) already overlaps synthesis with playback. It does not prepare the first chunk, and it does not eliminate playback-device startup between chunks. Replay caching also already exists; increasing the cache will not help novel answers.
+The next-chunk prefetch in [`extensions/speech/player.ts:112`](../../extensions/speech/player.ts#L112) already overlaps synthesis with playback. It does not prepare the first chunk, and it does not eliminate playback-device startup between chunks. Replay caching also already exists; increasing the cache will not help novel answers.
 
 ### Why cold starts recur
 
-[`speech/audio.ts:139`](../../speech/audio.ts#L139) kills the synthesis worker when active inference is cancelled. New submitted prompts call `player.stop()`, which aborts both playback and any active prefetch. The next uncached request then initializes again. `/speech off`, session replacement, reload, and shutdown also unload the worker.
+[`extensions/speech/audio.ts:139`](../../extensions/speech/audio.ts#L139) kills the synthesis worker when active inference is cancelled. New submitted prompts call `player.stop()`, which aborts both playback and any active prefetch. The next uncached request then initializes again. `/speech off`, session replacement, reload, and shutdown also unload the worker.
 
 Stopping playback does **not** always kill the model: if generation has already completed, its abort listener has been removed. A repeated five-second delay after uninterrupted warm playback would therefore require additional investigation, not an assumption that every stop reloads the model.
 

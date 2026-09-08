@@ -16,7 +16,7 @@ Make the [Pi coding agent](https://pi.dev) easier to read and listen to, especia
 
 ## Current focus
 
-The project's writing policy in [`SKILL.md`](SKILL.md), enabled automatically on every Pi start. Version `0.2.0` replaces the unmodified upstream skill with this single local policy; there are no intensity levels. The extension injects it before each agent run. No hard word cap or automatic rewriting.
+The project's writing policy in [`extensions/SKILL.md`](extensions/SKILL.md), enabled automatically on every Pi start. Version `0.2.0` replaces the unmodified upstream skill with this single local policy; there are no intensity levels. The extension injects it before each agent run. No hard word cap or automatic rewriting.
 
 The policy prioritizes total response length: target under 120 words of chat prose per turn, including research summaries. This is a soft target, not a quota or enforced limit. Explicitly requested detail and essential completeness, clarity, or safety can require more; code and requested documents remain intact. Summaries retain main conclusions, decision-changing evidence and citations, conditions, uncertainty, and warnings. The policy retains Caveman's STE-inspired rules and adds targeted guidance for context, terminology, structure, and uncertainty. [Writing research](docs/research/writing.md) records the evidence and evaluation plan for issue #2. Reader benefits and model adherence still need testing; this is not a universally proven prompt.
 
@@ -103,7 +103,7 @@ Setup explains the downloads and asks for permission before running anything. It
 
 The runtime lives in `~/.cache/pi-dyslexia/venv`; a bootstrapped uv lives in `~/.cache/pi-dyslexia/bin`. Model files use Hugging Face's cache. Startup checks installed dependencies and model files offline, without loading the voice model or playing audio. Nothing downloads without setup consent. Setup itself does not play audio or read previous answers; it preserves any saved automatic-playback preference. Developers can also run `npm run setup:speech` from this checkout.
 
-The installed package loads both the writing and speech extensions automatically. Fullscreen mode enables clickable controls; ordinary `pi` still supports shortcuts and commands. Restart Pi after updating. For development against an older installed package, use `npm install --legacy-peer-deps` and `pi -e ./speech/index.ts` from this repository. Do not add that entry point when the installed package already includes speech, or it will load twice.
+The installed package loads both the writing and speech extensions automatically. Fullscreen mode enables clickable controls; ordinary `pi` still supports shortcuts and commands. Restart Pi after updating. For development against an older installed package, use `npm install --legacy-peer-deps` and `pi -e ./extensions/speech/index.ts` from this repository. Do not add that entry point when the installed package already includes speech, or it will load twice.
 
 ```text
 /speech setup         Install or repair read-aloud; explain downloads and ask permission
@@ -140,6 +140,21 @@ Generation uses an owned Python subprocess. A separate sounddevice/PortAudio pro
 
 No cloud fallback, microphone, transcript logging, or HTTP server is used. All five presets were tested with OS networking denied. Temporary WAV files are private, bounded to a 32 MiB cache per session, and deleted on eviction or normal shutdown/reload/session replacement. An OS crash or `SIGKILL` can leave temporary files named `pi-dyslexia-speech-*` in the system temporary directory. Model downloads remain cached. Headless, JSON, print, and RPC runs never play speech. Multiple independent Pi windows have independent players; stop one before listening in another.
 
+## Project layout
+
+```text
+extensions/
+├── index.ts       # Writing extension
+├── SKILL.md       # Private writing policy, loaded by index.ts
+└── speech/        # Speech extension, worker, and setup files
+test/
+docs/
+package.json
+LICENSE
+```
+
+`package.json` explicitly registers `extensions/index.ts` and `extensions/speech/index.ts`. The policy is not discovered as a separate skill.
+
 ## Check
 
 With Node.js 22.6 or newer:
@@ -156,11 +171,11 @@ npm run test:speech-local
 
 ## Policy source and license
 
-[`SKILL.md`](SKILL.md) is adapted from [JuliusBrussee/caveman's skill](https://github.com/JuliusBrussee/caveman/blob/5184b3d11ac6a1acb7d44b9bfaa31698157cff97/skills/caveman/SKILL.md). It retains the core Rules and Auto-Clarity sections, integrates useful ultra rules, removes intensity switching, and adds the reviewed local changes. The original source revision is recorded in the file; this is a local adaptation, not an unchanged upstream copy.
+[`extensions/SKILL.md`](extensions/SKILL.md) is adapted from [JuliusBrussee/caveman's skill](https://github.com/JuliusBrussee/caveman/blob/5184b3d11ac6a1acb7d44b9bfaa31698157cff97/skills/caveman/SKILL.md). It retains the core Rules and Auto-Clarity sections, integrates useful ultra rules, removes intensity switching, and adds the reviewed local changes. The original source revision is recorded in the file; this is a local adaptation, not an unchanged upstream copy.
 
 The upstream copyright and MIT permission notice are preserved in [`LICENSE`](LICENSE), scoped to the adapted skill. No upstream engine or proxy code is included. The old `vendor/` directory is removed.
 
-The package includes `index.ts`, `speech/` source and setup files, `SKILL.md`, and `LICENSE`. The skill is not registered separately with Pi (`pi.skills` is empty); only the writing extension injects it and controls activation. Speech has a separate entry point and does not change the writing prompt. Model weights and the Python environment are not bundled. The speech runtime includes GPL-covered pronunciation dependencies; see the license notes in [speech research](docs/research/speech.md) before redistributing a bundled runtime.
+The package includes `extensions/index.ts`, `extensions/speech/` source and setup files, `extensions/SKILL.md`, and root `LICENSE`. The skill is not registered separately with Pi (`pi.skills` is empty); only the writing extension injects it and controls activation. Speech has a separate entry point and does not change the writing prompt. Model weights and the Python environment are not bundled. The speech runtime includes GPL-covered pronunciation dependencies; see the license notes in [speech research](docs/research/speech.md) before redistributing a bundled runtime.
 
 ## How we work
 
