@@ -1,4 +1,4 @@
-"""Offline Kokoro synthesis worker. JSON lines in/out; no playback or transcript logs."""
+"""Offline Kokoro synthesis and owned playback workers. JSON lines; no transcript logs."""
 
 import contextlib
 import importlib.util
@@ -68,11 +68,21 @@ def generate(model, model_path, text, voice, speed, output):
             pcm = np.asarray(result.audio).reshape(-1)
             if result.sample_rate != 24000 or not np.isfinite(pcm).all():
                 raise ValueError("Invalid model audio.")
-            audio.writeframes((np.clip(pcm, -1, 1) * 32767).astype("<i2").tobytes())
+            pcm = (np.clip(pcm, -1, 1) * 32767).astype("<i2")
+            if not samples:
+                pcm = trim_initial_silence(pcm)
+            audio.writeframes(pcm.tobytes())
             samples += pcm.size
     if not samples:
         raise ValueError("Model produced no audio.")
     return samples / 24000
+
+
+def trim_initial_silence(pcm):
+    """Remove only exact leading zeros, retaining 20 ms before the first sample."""
+    import numpy as np
+    nonzero = np.flatnonzero(pcm)
+    return pcm[max(0, int(nonzero[0]) - 480):] if nonzero.size else pcm
 
 
 class PlaybackBuffer:
@@ -92,40 +102,94 @@ class PlaybackBuffer:
         return block.ljust(size, b"\0"), self.position >= len(self.pcm)
 
 
-def play(path):
+def play():
+    """One output stream per owned player; JSON commands never run in the callback."""
     import sounddevice as sd
     import threading
-    with wave.open(str(path), "rb") as audio:
-        if audio.getnchannels() != 1 or audio.getsampwidth() != 2:
-            raise ValueError("Expected mono int16 WAV.")
-        rate = audio.getframerate()
-        buffer = PlaybackBuffer(audio.readframes(audio.getnframes()))
-    finished = threading.Event()
+    from queue import SimpleQueue
+    events = SimpleQueue()
+    lock = threading.Lock()
+    current = None
+    ready = False
 
-    def commands():
-        for line in sys.stdin:
-            if line.strip() == "pause":
-                buffer.paused = True
-            elif line.strip() == "resume":
-                buffer.paused = False
-        finished.set()  # Parent exited or closed the pipe.
+    def report():
+        while True:
+            event = events.get()
+            if event is None:
+                return
+            print(json.dumps(event), flush=True)
 
-    def callback(output, frames, _time, _status):
-        block, done = buffer.read(frames)
-        output[:] = block
-        if done:
-            raise sd.CallbackStop
+    def callback(output, frames, clock, _status):
+        nonlocal current, ready
+        output[:] = bytes(frames * 2)
+        if not ready:
+            ready = True
+            events.put({"event": "ready"})
+        with lock:
+            if current is None:
+                return
+            identity, buffer = current
+            if buffer.paused:
+                return
+            if buffer.position == 0:
+                events.put({"id": identity, "event": "started",
+                            "output_delay_ms": (clock.outputBufferDacTime - clock.currentTime) * 1000})
+            block, done = buffer.read(frames)
+            output[:] = block
+            if done:
+                current = None
+                events.put({"id": identity, "event": "done"})
 
-    threading.Thread(target=commands, daemon=True).start()
-    with sd.RawOutputStream(samplerate=rate, channels=1, dtype="int16", blocksize=512,
-                            latency="low", callback=callback, finished_callback=finished.set):
-        finished.wait()
+    reporter = threading.Thread(target=report, daemon=True)
+    reporter.start()
+    try:
+        with sd.RawOutputStream(samplerate=24000, channels=1, dtype="int16", blocksize=512,
+                                latency="low", callback=callback,
+                                finished_callback=lambda: events.put({"error": "Audio stream stopped."})):
+            for line in sys.stdin:
+                request = {}
+                try:
+                    request = json.loads(line)
+                    identity = request["id"]
+                    if type(identity) is not int or identity < 0:
+                        raise ValueError("Invalid playback ID.")
+                    action = request["action"]
+                    if action == "play":
+                        with wave.open(request["path"], "rb") as audio:
+                            if (audio.getnchannels(), audio.getsampwidth(), audio.getframerate()) != (1, 2, 24000):
+                                raise ValueError("Expected 24 kHz mono int16 WAV.")
+                            if not 0 < audio.getnframes() * 2 <= 32 * 1024 * 1024:
+                                raise ValueError("Invalid playback size.")
+                            pcm = audio.readframes(audio.getnframes())
+                            if len(pcm) != audio.getnframes() * 2:
+                                raise ValueError("Incomplete WAV.")
+                        buffer = PlaybackBuffer(pcm)
+                        buffer.paused = request.get("paused", False) is True
+                        with lock:
+                            if current is not None:
+                                raise ValueError("Playback is already active.")
+                            current = (identity, buffer)
+                    elif action in ("stop", "pause", "resume"):
+                        with lock:
+                            if current is not None and current[0] == identity:
+                                if action == "stop":
+                                    current = None
+                                else:
+                                    current[1].paused = action == "pause"
+                    else:
+                        raise ValueError("Invalid playback command.")
+                except Exception as error:
+                    events.put({"id": request.get("id") if isinstance(request, dict) else None,
+                                "error": type(error).__name__})
+    finally:
+        events.put(None)
+        reporter.join(timeout=1)
 
 
 def main():
     os.umask(0o077)
-    if len(sys.argv) == 3 and sys.argv[1] == "--play":
-        play(Path(sys.argv[2]))
+    if sys.argv[1:] == ["--player"]:
+        play()
         return
     if sys.argv[1:] == ["--check"]:
         check()

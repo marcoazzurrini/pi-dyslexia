@@ -14,6 +14,9 @@ const cacheLimit = 32 * 1024 * 1024;
 export class LocalAudio {
   private directory?: Promise<string>;
   private worker?: ChildProcess;
+  private player?: ChildProcess;
+  private playerReady?: Promise<ChildProcess>;
+  private activePlayback?: { id: number; started: (outputDelayMs: number) => void; finish: (error?: Error) => void };
   private pending?: { id: number; resolve: () => void; reject: (error: Error) => void };
   private children = new Map<ChildProcess, Promise<void>>();
   private serial = Promise.resolve();
@@ -112,12 +115,18 @@ export class LocalAudio {
     return child;
   }
 
-  generate(text: string, settings: VoiceSettings, signal: AbortSignal): Promise<string> {
+  async warm(settings: VoiceSettings, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    // Exercise pronunciation and inference, not just imports. Never play the sample.
+    await Promise.all([this.generate("Ready to read.", settings, signal, true), this.preparePlayback()]);
+  }
+
+  generate(text: string, settings: VoiceSettings, signal: AbortSignal, warmup = false): Promise<string> {
     const task = this.serial.then(async () => {
       signal.throwIfAborted();
       if (this.closed) throw new Error("Speech is closed.");
       const key = JSON.stringify([text, settings.voice, settings.speed]);
-      const cached = this.cache.get(key);
+      const cached = !warmup && this.cache.get(key);
       if (cached) {
         this.cache.delete(key);
         this.cache.set(key, cached);
@@ -152,6 +161,10 @@ export class LocalAudio {
           child.stdin!.write(JSON.stringify({ id, text, ...settings }) + "\n");
         });
         signal.throwIfAborted();
+        if (warmup) {
+          await rm(path, { force: true });
+          return path;
+        }
         const bytes = (await stat(path)).size;
         if (bytes > cacheLimit) throw new Error("Generated speech chunk exceeds the 32 MiB audio limit.");
         this.cache.set(key, { path, bytes });
@@ -173,31 +186,95 @@ export class LocalAudio {
     return task;
   }
 
+  private preparePlayback(): Promise<ChildProcess> {
+    if (this.closed) return Promise.reject(new Error("Speech is closed."));
+    if (this.playerReady) return this.playerReady;
+    const child = spawn(python, ["-u", workerPath, "--player"], { stdio: ["pipe", "pipe", "ignore"] });
+    this.track(child);
+    this.player = child;
+    this.playerReady = new Promise<ChildProcess>((resolve, reject) => {
+      const lines = createInterface({ input: child.stdout! });
+      const fail = (error: Error) => {
+        if (this.player !== child) return;
+        clearTimeout(timer);
+        this.player = undefined;
+        this.playerReady = undefined;
+        reject(error);
+        this.activePlayback?.finish(error);
+        child.kill("SIGKILL");
+      };
+      const timer = setTimeout(() => fail(new Error("Audio device startup timed out.")), 10_000);
+      lines.on("line", (line) => {
+        if (this.player !== child) return;
+        try {
+          const message = JSON.parse(line);
+          if (message.error) { fail(new Error(`macOS audio playback failed (${message.error}).`)); return; }
+          if (message.event === "ready") { clearTimeout(timer); resolve(child); return; }
+          if (!["started", "done"].includes(message.event) || !Number.isInteger(message.id)) throw new Error();
+          // A stop can race with an acknowledgement already in the pipe.
+          const active = this.activePlayback;
+          if (!active || message.id !== active.id) return;
+          if (message.event === "started") {
+            if (!Number.isFinite(message.output_delay_ms)) throw new Error();
+            active.started(message.output_delay_ms);
+          } else active.finish();
+        } catch { fail(new Error("Invalid audio player response.")); }
+      });
+      child.on("error", () => fail(new Error("Could not start macOS audio playback.")));
+      child.stdin!.on("error", () => fail(new Error("Audio player input closed.")));
+      child.on("close", () => { lines.close(); fail(new Error("Audio player stopped unexpectedly.")); });
+    });
+    return this.playerReady;
+  }
+
   play(path: string, signal: AbortSignal) {
     signal.throwIfAborted();
-    const child = spawn(python, ["-u", workerPath, "--play", path], { stdio: ["pipe", "ignore", "ignore"] });
-    this.track(child);
-    child.stdin!.on("error", () => {}); // The player can finish before a queued pause reaches its pipe.
-    const done = new Promise<void>((resolve, reject) => {
-      const abort = () => child.kill("SIGKILL");
-      signal.addEventListener("abort", abort, { once: true });
-      child.once("error", () => reject(new Error("Could not start macOS audio playback.")));
-      child.once("close", (code) => {
-        signal.removeEventListener("abort", abort);
-        if (signal.aborted) reject(signal.reason);
-        else if (code !== 0) reject(new Error("macOS audio playback failed."));
-        else resolve();
-      });
-    });
+    const id = ++this.counter;
+    const started = Promise.withResolvers<number>();
+    const done = Promise.withResolvers<void>();
+    // Both can reject before the caller reaches its await.
+    void started.promise.catch(() => {});
+    void done.promise.catch(() => {});
+    let child: ChildProcess | undefined;
+    let paused = false;
+    let began = false;
+    let finished = false;
+    const send = (action: string) => {
+      if (child && this.player === child && !child.stdin!.destroyed) {
+        child.stdin!.write(JSON.stringify({ id, action }) + "\n");
+      }
+    };
+    const finish = (error?: Error) => {
+      if (finished) return;
+      finished = true;
+      signal.removeEventListener("abort", abort);
+      if (this.activePlayback?.id === id) this.activePlayback = undefined;
+      if (!error && !began) error = new Error("Playback ended before its first buffer.");
+      if (error) { started.reject(error); done.reject(error); }
+      else done.resolve();
+    };
+    const abort = () => { send("stop"); finish(signal.reason ?? new Error("Speech cancelled.")); };
+    signal.addEventListener("abort", abort, { once: true });
+    void this.preparePlayback().then((ready) => {
+      if (finished) return;
+      signal.throwIfAborted();
+      if (this.closed) throw new Error("Speech is closed.");
+      if (this.activePlayback) throw new Error("Audio playback is already active.");
+      child = ready;
+      this.activePlayback = { id, started: (delay) => { began = true; started.resolve(delay); }, finish };
+      child.stdin!.write(JSON.stringify({ id, action: "play", path, paused }) + "\n");
+    }).catch(finish);
     return {
-      done,
-      pause: () => { if (!child.stdin!.destroyed) child.stdin!.write("pause\n"); },
-      resume: () => { if (!child.stdin!.destroyed) child.stdin!.write("resume\n"); },
+      started: started.promise,
+      done: done.promise,
+      pause: () => { paused = true; send("pause"); },
+      resume: () => { paused = false; send("resume"); },
     };
   }
 
   async close(): Promise<void> {
     this.closed = true;
+    this.activePlayback?.finish(new Error("Speech closed."));
     this.pending?.reject(new Error("Speech closed."));
     this.pending = undefined;
     this.worker = undefined;

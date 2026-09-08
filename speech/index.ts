@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { getAgentDir, type ExtensionAPI, type ExtensionContext, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, type ExtensionContext, type MessageEndEvent, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { LocalAudio } from "./audio.ts";
 import { SpeechPlayer, type Answer } from "./player.ts";
 
@@ -167,7 +167,7 @@ export default function speech(pi: ExtensionAPI): void {
       case "latest": select(latest); break;
       case "replay": select(player.answer ?? latest); break;
       case "previous": select(player.answer ?? latest, player.index - 1); break;
-      case "stop": player.stop(); break;
+      case "stop": armed = false; player.stop(); break;
       case "off": {
         const old = player;
         await save({ auto: false });
@@ -182,6 +182,7 @@ export default function speech(pi: ExtensionAPI): void {
       case "auto":
         if (value !== "on" && value !== "off") throw new Error("Usage: /speech auto on|off");
         await save({ auto: value === "on" });
+        if (value === "off") player?.cancelPreparation();
         autoBlocked = false;
         update();
         notify(ready ? `Automatic speech ${value}. Applies to future completed answers.` : `Automatic speech preference saved: ${value}. Read-aloud stays inactive until you complete /speech setup.`);
@@ -296,24 +297,37 @@ export default function speech(pi: ExtensionAPI): void {
   pi.on("input", (event) => {
     if (event.source === "interactive") player?.stop();
   });
+  const canPrepare = (context: ExtensionContext) => context.mode === "tui" && armed && ready && !setupTask && !autoBlocked && settings.auto;
+  const prepareMessage = (message: MessageEndEvent["message"], complete: boolean, context: ExtensionContext) => {
+    if (!canPrepare(context) || message.role !== "assistant" ||
+        (complete && message.stopReason !== "stop") || message.content.some((block) => block.type === "toolCall")) return;
+    const text = message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
+    player?.prepare(text, complete);
+  };
   pi.on("agent_start", (_event, context) => {
     if (context.mode !== "tui") return;
     runBoundary = context.sessionManager.getLeafId();
     armed = true;
+    if (canPrepare(context)) player?.prepare();
   });
+  pi.on("message_start", (event, context) => {
+    if (canPrepare(context) && event.message.role === "assistant") player?.prepare();
+  });
+  pi.on("message_update", (event, context) => prepareMessage(event.message, false, context));
+  pi.on("message_end", (event, context) => prepareMessage(event.message, true, context));
   pi.on("agent_settled", (_event, context) => {
     if (context.mode !== "tui" || !player || !armed || !context.isIdle()) return;
     armed = false;
     const branch = context.sessionManager.getBranch();
     const boundary = runBoundary == null ? -1 : branch.findIndex((entry) => entry.id === runBoundary);
-    if (runBoundary != null && boundary < 0) return;
+    if (runBoundary != null && boundary < 0) { player.cancelPreparation(); return; }
     const lastAssistant = branch.slice(boundary + 1).findLast((entry) => entry.type === "message" && entry.message.role === "assistant");
     const answer = answerFromEntry(lastAssistant);
-    if (!answer || answer.id === latest?.id) return;
+    if (!answer || answer.id === latest?.id) { player.cancelPreparation(); return; }
     latest = answer;
     newer = !!player.answer && player.answer.id !== answer.id;
     if (ready && !setupTask && !autoBlocked && settings.auto && !player.busy) select(answer);
-    else update();
+    else { player.cancelPreparation(); update(); }
   });
   pi.on("session_tree", () => {
     armed = false;

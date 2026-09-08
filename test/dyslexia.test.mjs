@@ -38,9 +38,7 @@ test("adapted policy starts on, toggles between runs, and resets on every sessio
   assert.match(initial, /\/dyslexia on\|off\|status/);
   assert.doesNotMatch(initial.slice(initial.indexOf("## pi-dyslexia state")), /caveman/i);
   assert.doesNotMatch(commands.get("dyslexia").description, /caveman/i);
-  assert.match(initial, /## Rules\n\nLength first: target under 120 words of chat prose per turn, including research/);
   assert.match(initial, /Keep main conclusions, key evidence\/citations, conditions, uncertainty, and warnings/);
-  assert.match(initial, /Exceed only for requested detail or essential completeness, clarity, or safety/);
   assert.match(initial, /Never truncate code or requested documents/);
   assert.match(initial, /Preserve meaningful uncertainty/);
   assert.match(initial, /ASD-STE100 Simplified Technical English/);

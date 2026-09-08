@@ -40,8 +40,9 @@ test("first-run setup is optional, remembered, consented, retryable, and gates e
       if (result.code !== 0) throw new Error(result.stderr);
       installed = installWorks;
     },
+    async warm() {},
     async generate() { generated++; if (failPlayback) throw new Error("Test synthesis failure."); return "test.wav"; },
-    play() { return { done: Promise.resolve(), pause() {}, resume() {} }; },
+    play() { return { started: Promise.resolve(), done: Promise.resolve(), pause() {}, resume() {} }; },
     async close() {},
   };
   for (const [name, method] of Object.entries(fake)) {

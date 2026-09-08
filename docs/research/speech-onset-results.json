@@ -1,0 +1,290 @@
+{
+  "captured_at": "2026-09-08T22:27:23.281Z",
+  "platform": "darwin arm64",
+  "output_device_before": {
+    "name": "Marco’s AirPods Pro",
+    "index": 4,
+    "hostapi": 0,
+    "max_input_channels": 0,
+    "max_output_channels": 2,
+    "default_low_input_latency": 0.01,
+    "default_low_output_latency": 0.16133333333333333,
+    "default_high_input_latency": 0.1,
+    "default_high_output_latency": 0.17066666666666666,
+    "default_samplerate": 48000
+  },
+  "output_device_after": {
+    "name": "Marco’s AirPods Pro",
+    "index": 4,
+    "hostapi": 0,
+    "max_input_channels": 0,
+    "max_output_channels": 2,
+    "default_low_input_latency": 0.01,
+    "default_low_output_latency": 0.16133333333333333,
+    "default_high_input_latency": 0.1,
+    "default_high_output_latency": 0.17066666666666666,
+    "default_samplerate": 48000
+  },
+  "voice": "af_heart",
+  "speed": 1.5,
+  "note": "Only synthetic silence played. Preparation finishes before simulated settlement; cold/burst responses cannot assume that head start. Add device delay and generated lead-in to estimate audibility; no acoustic or live Pi measurement.",
+  "summary": {
+    "cold": {
+      "count": 3,
+      "median_ms": 3975.7861250000005,
+      "p95_ms": 3976.1323329999996,
+      "max_ms": 3976.1323329999996,
+      "estimated_onset_median_ms": 4233.971291332468,
+      "estimated_onset_p95_ms": 4235.635749999941,
+      "estimated_onset_max_ms": 4235.635749999941
+    },
+    "warm": {
+      "count": 3,
+      "median_ms": 148.902333,
+      "p95_ms": 149.07474999999977,
+      "max_ms": 149.07474999999977,
+      "estimated_onset_median_ms": 379.97524999979123,
+      "estimated_onset_p95_ms": 380.5658329985017,
+      "estimated_onset_max_ms": 380.5658329985017
+    },
+    "prepared": {
+      "count": 20,
+      "median_ms": 11.440687499999513,
+      "p95_ms": 20.596542000000227,
+      "max_ms": 20.6473330000008,
+      "estimated_onset_median_ms": 253.36241700117625,
+      "estimated_onset_p95_ms": 263.5628326677931,
+      "estimated_onset_max_ms": 281.8237919989433
+    }
+  },
+  "rows": [
+    {
+      "trial": 0,
+      "kind": "cold",
+      "leading_below_minus40db_ms": 86.875,
+      "start_to_first_buffer_ack_ms": 3976.1323329999996,
+      "reported_output_delay_ms": 172.6284169999417,
+      "estimated_threshold_onset_ms": 4235.635749999941
+    },
+    {
+      "trial": 0,
+      "kind": "warm",
+      "leading_below_minus40db_ms": 58.875,
+      "start_to_first_buffer_ack_ms": 148.49241600000005,
+      "reported_output_delay_ms": 172.60783399979118,
+      "estimated_threshold_onset_ms": 379.97524999979123
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 193.6173749999998,
+      "leading_below_minus40db_ms": 68.5,
+      "start_to_first_buffer_ack_ms": 19.231041999999434,
+      "reported_output_delay_ms": 172.6107079994108,
+      "estimated_threshold_onset_ms": 260.34174999941024
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 186.03775000000041,
+      "leading_below_minus40db_ms": 69.54166666666667,
+      "start_to_first_buffer_ack_ms": 5.851624999999331,
+      "reported_output_delay_ms": 172.60895900108153,
+      "estimated_threshold_onset_ms": 248.00225066774755
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 192.43787500000053,
+      "leading_below_minus40db_ms": 70.29166666666667,
+      "start_to_first_buffer_ack_ms": 20.6473330000008,
+      "reported_output_delay_ms": 172.6238330011256,
+      "estimated_threshold_onset_ms": 263.5628326677931
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 193.6557499999999,
+      "leading_below_minus40db_ms": 89.625,
+      "start_to_first_buffer_ack_ms": 19.608250000000226,
+      "reported_output_delay_ms": 172.59054199894308,
+      "estimated_threshold_onset_ms": 281.8237919989433
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 197.3471669999999,
+      "leading_below_minus40db_ms": 70.70833333333333,
+      "start_to_first_buffer_ack_ms": 15.624792000000525,
+      "reported_output_delay_ms": 172.61970899926382,
+      "estimated_threshold_onset_ms": 258.95283433259766
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 192.35641699999996,
+      "leading_below_minus40db_ms": 68.375,
+      "start_to_first_buffer_ack_ms": 20.596542000000227,
+      "reported_output_delay_ms": 172.62704099994153,
+      "estimated_threshold_onset_ms": 261.59858299994175
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 194.37283300000036,
+      "leading_below_minus40db_ms": 70.83333333333333,
+      "start_to_first_buffer_ack_ms": 18.837540999999874,
+      "reported_output_delay_ms": 172.5988749985845,
+      "estimated_threshold_onset_ms": 262.2697493319177
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 194.9773750000004,
+      "leading_below_minus40db_ms": 69.04166666666667,
+      "start_to_first_buffer_ack_ms": 18.20416600000044,
+      "reported_output_delay_ms": 172.60695900040446,
+      "estimated_threshold_onset_ms": 259.8527916670716
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 183.0367500000002,
+      "leading_below_minus40db_ms": 70,
+      "start_to_first_buffer_ack_ms": 8.935124999999971,
+      "reported_output_delay_ms": 172.59233300137566,
+      "estimated_threshold_onset_ms": 251.52745800137563
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 189.6262080000006,
+      "leading_below_minus40db_ms": 69.125,
+      "start_to_first_buffer_ack_ms": 2.3182090000000244,
+      "reported_output_delay_ms": 172.60508300023503,
+      "estimated_threshold_onset_ms": 244.04829200023505
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 202.54458400000112,
+      "leading_below_minus40db_ms": 69.16666666666667,
+      "start_to_first_buffer_ack_ms": 10.706500000000233,
+      "reported_output_delay_ms": 172.60804200122948,
+      "estimated_threshold_onset_ms": 252.4812086678964
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 206.80012499999975,
+      "leading_below_minus40db_ms": 69.375,
+      "start_to_first_buffer_ack_ms": 6.45233399999961,
+      "reported_output_delay_ms": 172.5797919989418,
+      "estimated_threshold_onset_ms": 248.4071259989414
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 206.06825000000026,
+      "leading_below_minus40db_ms": 69.04166666666667,
+      "start_to_first_buffer_ack_ms": 7.101957999999286,
+      "reported_output_delay_ms": 172.60133299896552,
+      "estimated_threshold_onset_ms": 248.7449576656315
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 196.45633400000042,
+      "leading_below_minus40db_ms": 70.66666666666667,
+      "start_to_first_buffer_ack_ms": 16.82562499999949,
+      "reported_output_delay_ms": 172.60158300086914,
+      "estimated_threshold_onset_ms": 260.0938746675353
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 209.41641699999855,
+      "leading_below_minus40db_ms": 68.25,
+      "start_to_first_buffer_ack_ms": 3.756916000000274,
+      "reported_output_delay_ms": 172.61004199826857,
+      "estimated_threshold_onset_ms": 244.61695799826884
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 195.66162500000064,
+      "leading_below_minus40db_ms": 68.875,
+      "start_to_first_buffer_ack_ms": 17.598958000000493,
+      "reported_output_delay_ms": 172.5897079995775,
+      "estimated_threshold_onset_ms": 259.063665999578
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 202.5164160000004,
+      "leading_below_minus40db_ms": 68.54166666666667,
+      "start_to_first_buffer_ack_ms": 10.479207999998835,
+      "reported_output_delay_ms": 172.61387500002456,
+      "estimated_threshold_onset_ms": 251.63474966669008
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 200.99520800000028,
+      "leading_below_minus40db_ms": 69.45833333333333,
+      "start_to_first_buffer_ack_ms": 12.174874999998792,
+      "reported_output_delay_ms": 172.610417001124,
+      "estimated_threshold_onset_ms": 254.2436253344561
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 202.94637499999953,
+      "leading_below_minus40db_ms": 69.16666666666667,
+      "start_to_first_buffer_ack_ms": 10.424750000000131,
+      "reported_output_delay_ms": 172.57716599851847,
+      "estimated_threshold_onset_ms": 252.16858266518528
+    },
+    {
+      "trial": 0,
+      "kind": "prepared",
+      "preparation_ms": 210.5449580000004,
+      "leading_below_minus40db_ms": 70.20833333333333,
+      "start_to_first_buffer_ack_ms": 2.6208329999990383,
+      "reported_output_delay_ms": 172.61962500015215,
+      "estimated_threshold_onset_ms": 245.4487913334845
+    },
+    {
+      "trial": 1,
+      "kind": "cold",
+      "leading_below_minus40db_ms": 85.58333333333333,
+      "start_to_first_buffer_ack_ms": 3975.7861250000005,
+      "reported_output_delay_ms": 172.60183299913479,
+      "estimated_threshold_onset_ms": 4233.971291332468
+    },
+    {
+      "trial": 1,
+      "kind": "warm",
+      "leading_below_minus40db_ms": 58.125,
+      "start_to_first_buffer_ack_ms": 148.902333,
+      "reported_output_delay_ms": 172.64162500032398,
+      "estimated_threshold_onset_ms": 379.668958000324
+    },
+    {
+      "trial": 2,
+      "kind": "cold",
+      "leading_below_minus40db_ms": 86.91666666666667,
+      "start_to_first_buffer_ack_ms": 3966.537625000001,
+      "reported_output_delay_ms": 172.62737500095682,
+      "estimated_threshold_onset_ms": 4226.081666667625
+    },
+    {
+      "trial": 2,
+      "kind": "warm",
+      "leading_below_minus40db_ms": 58.875,
+      "start_to_first_buffer_ack_ms": 149.07474999999977,
+      "reported_output_delay_ms": 172.61608299850195,
+      "estimated_threshold_onset_ms": 380.5658329985017
+    }
+  ]
+}

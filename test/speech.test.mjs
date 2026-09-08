@@ -14,10 +14,11 @@ async function until(check) {
 }
 
 function fakeAudio({ deferGeneration = false } = {}) {
-  const generated = [], played = [];
+  const generated = [], played = [], warmed = [];
   return {
-    generated, played, closed: false,
+    generated, played, warmed, closed: false,
     async checkReady() { return true; },
+    async warm(settings, signal) { warmed.push({ settings, signal }); },
     generate(text, settings, signal) {
       const deferred = Promise.withResolvers();
       generated.push({ text, settings, signal, ...deferred });
@@ -28,7 +29,7 @@ function fakeAudio({ deferGeneration = false } = {}) {
       const entry = { path, paused: false, signal, ...deferred };
       played.push(entry);
       signal.addEventListener("abort", () => deferred.reject(signal.reason), { once: true });
-      return { done: deferred.promise, pause: () => { entry.paused = true; }, resume: () => { entry.paused = false; } };
+      return { started: Promise.resolve(), done: deferred.promise, pause: () => { entry.paused = true; }, resume: () => { entry.paused = false; } };
     },
     async close() { this.closed = true; },
   };
@@ -131,6 +132,74 @@ test("synthesis failure remains recoverable without unhandled prefetch rejection
   await player.close();
 });
 
+test("silent preparation transfers in-flight audio, validates final text/settings, and stays bounded", async () => {
+  const audio = fakeAudio({ deferGeneration: true });
+  const player = new SpeechPlayer(audio, () => {}, assert.fail);
+  player.prepare();
+  player.prepare("An unfinished sentence");
+  assert.equal(audio.generated.length, 0);
+  player.prepare("First sentence. More text");
+  player.prepare("First sentence. More text arrives.");
+  player.prepare(); // A different assistant message arrives while inference is pending.
+  player.prepare("Other sentence. More text");
+  assert.equal(audio.generated.length, 1, "at most one speculative request in flight");
+  assert.equal(audio.warmed.length, 1);
+  assert.equal(audio.played.length, 0, "preparation never narrates partial messages");
+  audio.generated[0].resolve("first.wav");
+  await tick();
+  player.prepare("Final sentence.", true);
+  player.start({ id: "final", text: "Final sentence." });
+  assert.equal(audio.generated[1].signal.aborted, false, "do not kill prepared synthesis at settlement");
+  audio.generated[1].resolve("final.wav");
+  await until(() => audio.played.length === 1);
+  assert.equal(audio.generated.length, 2, "reuse preparation instead of generating again");
+  assert.equal(audio.played[0].path, "final.wav");
+  audio.played[0].resolve();
+  await player.finished;
+  await player.close();
+
+  for (const change of ["text", "voice", "speed", "includeAll"]) {
+    const fake = fakeAudio();
+    const p = new SpeechPlayer(fake, () => {}, assert.fail);
+    p.prepare("Prepared sentence.", true);
+    await tick();
+    if (change === "voice") p.settings.voice = "bf_emma";
+    if (change === "speed") p.settings.speed = 1.5;
+    if (change === "includeAll") p.includeAll = true;
+    const text = change === "text" ? "Revised sentence." : "Prepared sentence.";
+    p.start({ id: change, text });
+    await until(() => fake.played.length === 1);
+    assert.equal(fake.generated.length, 2, `validate ${change} before reusing speculation`);
+    assert.equal(fake.played[0].path, text);
+    await p.close();
+  }
+  const cancelled = fakeAudio();
+  const p = new SpeechPlayer(cancelled, () => {}, assert.fail);
+  p.prepare();
+  p.stop();
+  assert.equal(cancelled.warmed[0].signal.aborted, true);
+  assert.equal(cancelled.played.length, 0);
+  await p.close();
+});
+
+test("playing status waits for the first buffer and pause during device startup is preserved", async () => {
+  const audio = fakeAudio();
+  const firstBuffer = Promise.withResolvers();
+  const original = audio.play;
+  audio.play = (...args) => ({ ...original(...args), started: firstBuffer.promise });
+  const player = new SpeechPlayer(audio, () => {}, assert.fail);
+  player.start({ id: "a", text: "A sentence." });
+  await until(() => audio.played.length === 1);
+  assert.equal(player.state, "loading");
+  player.toggle();
+  firstBuffer.resolve();
+  await tick();
+  assert.equal(player.state, "paused");
+  player.toggle();
+  assert.equal(player.state, "playing");
+  await player.close();
+});
+
 for (const agentDir of [".pi/agent", "custom-agent"]) test(`extension gates autoplay and saves settings under ${agentDir}`, async () => {
   const home = await mkdtemp(join(tmpdir(), "pi-speech-test-"));
   const originalEnv = { HOME: process.env.HOME, PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR };
@@ -153,7 +222,7 @@ for (const agentDir of [".pi/agent", "custom-agent"]) test(`extension gates auto
   await writeFile(legacyConfig, JSON.stringify(legacySettings));
   const audio = fakeAudio();
   const originals = {};
-  for (const method of ["checkReady", "generate", "play", "close"]) {
+  for (const method of ["checkReady", "warm", "generate", "play", "close"]) {
     originals[method] = LocalAudio.prototype[method];
     LocalAudio.prototype[method] = audio[method].bind(audio);
   }
@@ -187,13 +256,21 @@ for (const agentDir of [".pi/agent", "custom-agent"]) test(`extension gates auto
     await event("agent_settled");
     assert.equal(audio.played.length, 0);
     await event("agent_start");
-    branch.push(entry("new"));
+    const completed = entry("new");
+    await event("message_start", { message: completed.message });
+    await event("message_update", { message: { ...completed.message, stopReason: "pending", content: [{ type: "text", text: "A completed answer. More text" }] } });
+    await tick();
+    assert.equal(audio.played.length, 0, "streaming preparation is silent");
+    const preparedCount = audio.generated.length;
+    await event("message_end", { message: completed.message });
+    branch.push(completed);
     idle = false;
     await event("agent_settled");
     assert.equal(audio.played.length, 0);
     idle = true;
     await event("agent_settled");
     await until(() => audio.played.length === 1);
+    assert.equal(audio.generated.length, preparedCount, "settlement uses the validated prepared chunk");
     assert.doesNotMatch(audio.generated[0].text, /secret/);
     await event("agent_settled");
     assert.equal(audio.played.length, 1, "no duplicate playback");
@@ -213,6 +290,19 @@ for (const agentDir of [".pi/agent", "custom-agent"]) test(`extension gates auto
       await event("agent_settled");
     }
     assert.equal(audio.played.length, 2, "do not fall back to older successful text after an unsuccessful run");
+    await event("agent_start");
+    const suppressed = entry("suppressed", "stop", "Do not narrate this answer. More text.");
+    await event("message_update", { message: { ...suppressed.message, stopReason: "pending" } });
+    await tick();
+    const speculative = audio.generated.at(-1);
+    await command("stop");
+    assert.equal(speculative.signal.aborted, true, "stop cancels silent preparation");
+    const countAfterStop = audio.generated.length;
+    await event("message_update", { message: suppressed.message });
+    branch.push(suppressed);
+    await event("agent_settled");
+    assert.equal(audio.generated.length, countAfterStop, "later tokens do not restart cancelled preparation");
+    assert.equal(audio.played.length, 2, "stop suppresses the currently running answer");
     assert.ok(commands.get("speech").getArgumentCompletions("speed ").some((item) => item.value === "speed 1.5"));
     await command("speed 1.5");
     assert.equal(JSON.parse(await readFile(config, "utf8")).speed, 1.5);
