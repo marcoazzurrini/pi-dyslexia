@@ -130,15 +130,26 @@ test("synthesis failure remains recoverable without unhandled prefetch rejection
   await player.close();
 });
 
-test("extension gates autoplay on settled successful new answers; controls and settings stay local", async () => {
+for (const agentDir of [".pi/agent", "custom-agent"]) test(`extension gates autoplay and saves settings under ${agentDir}`, async () => {
   const home = await mkdtemp(join(tmpdir(), "pi-speech-test-"));
-  const originalHome = process.env.HOME;
-  process.env.HOME = home;
-  const { default: speech, validateSettings, answerFromEntry } = await import("../speech/index.ts");
-  process.env.HOME = originalHome;
-  const config = join(home, ".config/pi-dyslexia/speech.json");
+  const originalEnv = { HOME: process.env.HOME, PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR };
+  let speech, validateSettings, answerFromEntry;
+  try {
+    process.env.HOME = home;
+    delete process.env.PI_CODING_AGENT_DIR;
+    if (agentDir === "custom-agent") process.env.PI_CODING_AGENT_DIR = "~/custom-agent";
+    ({ default: speech, validateSettings, answerFromEntry } = await import(`../speech/index.ts?dir=${agentDir}`));
+  } finally {
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  const config = join(home, agentDir, "pi-dyslexia/speech.json");
+  const legacyConfig = join(home, ".config/pi-dyslexia/speech.json");
+  const legacySettings = { auto: false, voice: "af_heart", speed: 1, includeAll: false };
   await mkdir(join(home, ".config/pi-dyslexia"), { recursive: true });
-  await writeFile(config, JSON.stringify({ auto: true, voice: "af_heart", speed: 1, includeAll: false }));
+  await writeFile(legacyConfig, JSON.stringify(legacySettings));
   const audio = fakeAudio();
   const originals = {};
   for (const method of ["generate", "play", "close"]) {
@@ -159,6 +170,15 @@ test("extension gates autoplay on settled successful new answers; controls and s
     const event = (name, data = {}) => handlers.get(name)?.(data, context);
     const command = (args) => commands.get("speech").handler(args, context);
     await event("session_start");
+    assert.match(widgets.at(-1)[1]().render(200)[0], /auto off/, "read the legacy preference when the new file is missing");
+    await command("status");
+    assert.ok(notices.at(-1)[0].endsWith(`Settings: ${config}`));
+    await command("auto on");
+    assert.equal(JSON.parse(await readFile(config, "utf8")).auto, true);
+    assert.deepEqual(JSON.parse(await readFile(legacyConfig, "utf8")), legacySettings, "never write to the legacy path");
+    await event("session_shutdown");
+    await event("session_start");
+    assert.match(widgets.at(-1)[1]().render(200)[0], /auto on/, "new settings take precedence over legacy settings");
     await event("agent_settled");
     assert.equal(audio.played.length, 0, "never read restored history automatically");
     await event("agent_start");
@@ -228,6 +248,7 @@ test("extension gates autoplay on settled successful new answers; controls and s
     assert.equal(audio.played.length, 3, "saved auto off survives reopening Pi");
     await event("session_shutdown");
     await rm(config);
+    await rm(legacyConfig);
     await event("session_start");
     await event("agent_settled");
     assert.equal(audio.played.length, 3, "automatic defaults still never narrate restored history");
@@ -236,13 +257,26 @@ test("extension gates autoplay on settled successful new answers; controls and s
     await event("agent_settled");
     await until(() => audio.played.length === 4);
     await event("session_shutdown");
+    await writeFile(legacyConfig, JSON.stringify({ ...legacySettings, auto: true }));
     await writeFile(config, "{bad json");
     await event("session_start");
     assert.equal(notices.at(-1)[1], "error");
     await event("agent_start");
     branch.push(entry("bad-settings-manual"));
     await event("agent_settled");
-    assert.equal(audio.played.length, 4, "malformed settings never enable automatic speech");
+    assert.equal(audio.played.length, 4, "malformed settings never enable automatic speech or fall back to legacy settings");
+    await event("session_shutdown");
+    await rm(config);
+    await mkdir(config);
+    await event("session_start");
+    assert.equal(notices.at(-1)[1], "error");
+    assert.match(widgets.at(-1)[1]().render(200)[0], /auto off/, "unreadable settings must not fall back to legacy settings");
+    await event("session_shutdown");
+    await rm(config, { recursive: true });
+    await writeFile(legacyConfig, "{bad json");
+    await event("session_start");
+    assert.equal(notices.at(-1)[1], "error");
+    assert.match(widgets.at(-1)[1]().render(200)[0], /auto off/, "invalid legacy settings also use manual defaults");
     await event("session_shutdown");
     for (const mode of ["rpc", "print", "json"]) {
       await handlers.get("session_start")({}, { mode });

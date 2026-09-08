@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, type ExtensionContext, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { LocalAudio } from "./audio.ts";
 import { SpeechPlayer, type Answer } from "./player.ts";
 
 export const voices = ["af_heart", "af_bella", "am_michael", "bf_emma", "bm_george"] as const;
 const defaults = { auto: true, speed: 1, voice: "af_heart", includeAll: false };
-const configPath = join(homedir(), ".config/pi-dyslexia/speech.json");
+const configPath = join(getAgentDir(), "pi-dyslexia", "speech.json");
+const legacyConfigPath = join(homedir(), ".config/pi-dyslexia/speech.json");
 type Settings = typeof defaults;
 
 export function validateSettings(value: unknown): Settings {
@@ -184,7 +185,13 @@ export default function speech(pi: ExtensionAPI): void {
     }
     ctx = context;
     settings = { ...defaults };
-    try { settings = validateSettings(JSON.parse(await readFile(configPath, "utf8"))); }
+    try {
+      const contents = await readFile(configPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+        return readFile(legacyConfigPath, "utf8");
+      });
+      settings = validateSettings(JSON.parse(contents));
+    }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         settings.auto = false;
