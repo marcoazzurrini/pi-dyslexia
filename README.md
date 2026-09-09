@@ -155,6 +155,34 @@ LICENSE
 
 `package.json` explicitly registers `extensions/index.ts` and `extensions/speech/index.ts`. The policy is not discovered as a separate skill.
 
+## Development checks and Git hooks
+
+Use Node.js 24 for development tooling. Install the pinned tools and Git hooks:
+
+```sh
+npm ci
+npm run hooks:install
+```
+
+The pre-commit hook runs Oxfmt on staged source and configuration files, stages the formatted results with Lefthook's `stage_fixed`, then runs Oxlint on staged JavaScript and TypeScript and a whole-project TypeScript check. The named jobs run sequentially and stop at the first failure. Lefthook preserves unstaged edits in partially staged files; if they cannot be restored safely, the commit fails. Review the diff before retrying a failed commit. Lint errors and warnings block the commit; lint fixes are never applied silently by the hook.
+
+Typechecking runs when TypeScript, `tsconfig.json`, or dependency manifests are staged. It checks all extension TypeScript and the Oxc configuration files, not only the staged files. `tsconfig.json` enables strict checking without emitting JavaScript; dependency declaration files are skipped. JavaScript tests, research, and non-TypeScript assets are not typechecked. The compiler reads the working tree, subject to Lefthook's handling of partially staged files; it is not an isolated check of the Git index.
+
+The pre-push hook runs `npm test`.
+
+Oxlint extends Ultracite's core and bundled anti-slop presets without local rule relaxations. Oxfmt uses Ultracite's formatting preset. Documentation, the writing policy, Python, shell scripts, and text assets are outside this lint/format workflow. The generated npm lockfile is also excluded from formatting.
+
+```sh
+npm run format         # Explicitly format eligible project files
+npm run format:check   # Check formatting without rewriting
+npm run lint           # Check all eligible source files, including tests
+npm run lint:fix       # Explicitly apply available safe lint fixes
+npm run typecheck      # Strict TypeScript check, without emitting files
+npm run check          # Formatting, lint, types, and unit tests
+```
+
+Tooling is a development dependency only; Pi installations without development dependencies do not need Lefthook or run a project `prepare` script.
+
 ## Check
 
 With Node.js 22.6 or newer:

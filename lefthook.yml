@@ -1,0 +1,37 @@
+# Install locally with `npm run hooks:install` after installing dependencies.
+# Keep formatting, linting, and typechecking on commit; run tests on push.
+glob_matcher: doublestar
+
+pre-commit:
+  # Sequential and fail-fast: lint and typecheck read the formatted files.
+  piped: true
+  jobs:
+    - name: format
+      glob: "**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts,json,jsonc,yml,yaml}"
+      exclude:
+        - docs/**
+        - package-lock.json
+      run: npm exec --no -- oxfmt --write -- {staged_files}
+      # Include formatter rewrites in this commit, preserving unstaged edits.
+      stage_fixed: true
+
+    - name: lint
+      glob: "**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      exclude:
+        - docs/**
+      run: npm exec --no -- oxlint --deny-warnings -- {staged_files}
+
+    - name: typecheck
+      # Check the whole project, not only staged files. A changed or deleted
+      # module can break an unchanged importer. Use Git for the gate because
+      # Lefthook's staged-file glob skips deleted files.
+      # Exit 0 means no relevant changes, so skip this job.
+      skip:
+        - run: >-
+            git diff --cached --quiet -- '*.ts' '*.tsx' '*.mts' '*.cts' tsconfig.json package.json package-lock.json ':(exclude)docs/**'
+      run: npm run typecheck
+
+pre-push:
+  jobs:
+    - name: test
+      run: npm test

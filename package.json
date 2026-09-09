@@ -2,7 +2,6 @@
   "name": "pi-dyslexia",
   "version": "0.4.0",
   "private": true,
-  "type": "module",
   "description": "Personal reading and listening preferences for Pi.",
   "keywords": [
     "pi-package"
@@ -20,11 +19,31 @@
     "extensions/SKILL.md",
     "LICENSE"
   ],
+  "type": "module",
   "scripts": {
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "lint": "oxlint --deny-warnings .",
+    "lint:fix": "oxlint --fix --deny-warnings .",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "hooks:install": "lefthook install",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
     "test": "node --experimental-strip-types --test test/*.test.mjs",
     "test:speech-local": "python3 test/speech-worker.py && PI_DYSLEXIA_AUDIO_TEST=1 node --experimental-strip-types --test test/speech-local.test.mjs",
     "setup:speech": "sh extensions/speech/setup.sh",
     "preversion": "npm test"
+  },
+  "dependencies": {
+    "entities": "7.0.1",
+    "marked": "17.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "lefthook": "2.1.12",
+    "oxfmt": "0.67.0",
+    "oxlint": "1.82.0",
+    "typescript": "7.0.2",
+    "ultracite": "7.11.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.85.1"
@@ -35,9 +54,5 @@
       "./extensions/speech/index.ts"
     ],
     "skills": []
-  },
-  "dependencies": {
-    "entities": "7.0.1",
-    "marked": "17.0.1"
   }
 }
