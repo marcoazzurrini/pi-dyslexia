@@ -22,7 +22,7 @@ struct Entry {
       }
       try AssetLock.check(verify: arguments != ["--check"])
       if arguments == ["--check"] || arguments == ["--verify"] {
-        writer.send(["ready": true, "albert": "cpuAndGPU"])
+        writer.send(["ready": true, "albert": "cpuAndGPU", "playbackRate": 1])
         return
       }
       guard arguments.count == 1 else { throw SpeechError.invalidRequest }
@@ -47,7 +47,7 @@ struct Entry {
           guard let text = request.text,
             !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             text.count <= 2000, let voice = request.voice,
-            let speed = request.speed, speed.isFinite, (0.5...2).contains(speed)
+            request.speed == nil
           else {
             throw SpeechError.invalidRequest
           }
@@ -56,7 +56,7 @@ struct Entry {
           guard !phonemes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw SpeechError.invalidAudio
           }
-          let samples = try await synthesize(phonemes, manager: manager, voice: voice, speed: speed)
+          let samples = try await synthesize(phonemes, manager: manager, voice: voice)
           let wav = try PCM.encode(samples)
           try wav.write(to: directory.appendingPathComponent("\(request.id).wav"), options: .atomic)
           writer.send(["id": request.id, "seconds": Double(wav.count - 44) / Double(PCM.rate * 2)])
@@ -74,12 +74,12 @@ struct Entry {
   }
 
   static func synthesize(
-    _ phonemes: String, manager: KokoroAneManager, voice: String, speed: Float
+    _ phonemes: String, manager: KokoroAneManager, voice: String
   ) async throws -> [Float] {
     if phonemes.count <= 510 {
       do {
         let result = try await manager.synthesizeFromPhonemesDetailed(
-          phonemes, voice: voice, speed: speed)
+          phonemes, voice: voice, speed: 1)
         guard result.sampleRate == PCM.rate else { throw SpeechError.invalidAudio }
         return result.samples
       } catch KokoroAneError.acousticFramesExceedCap {
@@ -95,9 +95,9 @@ struct Entry {
       .min(by: { abs($0 - middle) < abs($1 - middle) })
     else { throw SpeechError.oversizedInput }
     let left = try await synthesize(
-      String(characters[..<boundary]), manager: manager, voice: voice, speed: speed)
+      String(characters[..<boundary]), manager: manager, voice: voice)
     let right = try await synthesize(
-      String(characters[(boundary + 1)...]), manager: manager, voice: voice, speed: speed)
+      String(characters[(boundary + 1)...]), manager: manager, voice: voice)
     guard left.count + right.count <= PCM.byteLimit / 2 else { throw SpeechError.invalidAudio }
     return left + right
   }

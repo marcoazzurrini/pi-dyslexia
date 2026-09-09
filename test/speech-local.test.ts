@@ -24,6 +24,7 @@ test(
   "local worker, cache, cancellation, silent player pause/resume and cleanup",
   {
     skip: skipNative,
+    timeout: 120_000,
   },
   async () => {
     const audio = new LocalAudio();
@@ -63,19 +64,17 @@ test(
       await assert.rejects(
         audio.generate(
           "Reject invalid settings.",
-          { speed: 1, voice: "missing_voice" },
+          { voice: "missing_voice" },
           controller.signal
         ),
         /Speech synthesis failed/u
       );
-      await assert.rejects(
-        audio.generate(
-          "Reject invalid settings.",
-          { speed: 0, voice: "af_heart" },
-          controller.signal
-        ),
-        /Speech synthesis failed/u
-      );
+      for (const speed of [0, 0.49, 2.01, Number.NaN, Infinity]) {
+        assert.throws(
+          () => audio.play(path, controller.signal, speed),
+          /Playback speed/u
+        );
+      }
       assert.equal(
         audio["worker"],
         healthyWorker,
@@ -133,7 +132,7 @@ test(
       const silentPath = nodePath.join(temp, "silence.wav");
       await writeFile(silentPath, silence);
       const playerProcess = audio["player"];
-      const playback = audio.play(silentPath, controller.signal);
+      const playback = audio.play(silentPath, controller.signal, 1.25);
       await playback.started;
       assert.equal(
         audio["player"],
@@ -148,6 +147,7 @@ test(
       const observed = observeCompletion();
       await delay(100);
       playback.pause();
+      playback.setSpeed(1.5);
       await delay(1200);
       assert.equal(
         ended,
@@ -156,9 +156,47 @@ test(
       );
       playback.resume();
       await observed;
+      for await (const speed of [0.5, 1, 1.25, 1.5, 2]) {
+        const begin = performance.now();
+        const timed = audio.play(silentPath, controller.signal, speed);
+        await timed.started;
+        await timed.done;
+        const seconds = (performance.now() - begin) / 1000;
+        assert.ok(
+          seconds >= 1 / speed - 0.12,
+          `no early completion at ${speed}x: ${seconds}s`
+        );
+        assert.ok(
+          seconds < 1 / speed + 0.8,
+          `bounded processing/device latency at ${speed}x: ${seconds}s`
+        );
+      }
+      const liveBegin = performance.now();
+      const live = audio.play(silentPath, controller.signal, 0.5);
+      await live.started;
+      await delay(100);
+      live.setSpeed(2);
+      await live.done;
+      assert.ok(
+        performance.now() - liveBegin < 1800,
+        "a live speed change affects the current buffer, not only the next chunk"
+      );
+      // Freeze playback before the first render, change speed, then resume without losing its start.
+      const initiallyPaused = audio.play(silentPath, controller.signal, 1.25);
+      initiallyPaused.pause();
+      initiallyPaused.setSpeed(2);
+      let startedWhilePaused = false;
+      void initiallyPaused.started.then(() => {
+        startedWhilePaused = true;
+      });
+      await delay(300);
+      assert.equal(startedWhilePaused, false);
+      initiallyPaused.resume();
+      await initiallyPaused.done;
       const next = audio.play(silentPath, controller.signal);
       const stopped = assert.rejects(next.done);
       await next.started;
+      next.pause();
       controller.abort();
       await stopped;
       const resumed = audio.play(silentPath, new AbortController().signal);
@@ -204,9 +242,10 @@ test(
 );
 
 test(
-  "native ALBERT routing supports every preset, speed boundaries, and long input without playback",
+  "native synthesis supports every preset, reuses audio across playback speeds, and handles long input",
   {
     skip: skipNative,
+    timeout: 120_000,
   },
   async () => {
     const audio = new LocalAudio();
@@ -220,12 +259,22 @@ test(
         "bf_emma",
         "bm_george",
       ]) {
-        for await (const speed of [0.5, 1, 1.5, 2]) {
+        let cached: string | undefined;
+        for await (const speed of [0.5, 1, 1.25, 1.5, 2]) {
+          const settings = { speed, voice };
           const filename = await audio.generate(
             "Warning: do not delete the backup. Port 8080 returned ECONNREFUSED.",
-            { speed, voice },
+            settings,
             signal
           );
+          if (cached) {
+            assert.equal(
+              filename,
+              cached,
+              "playback speed never changes synthesized audio"
+            );
+          }
+          cached = filename;
           const wav = await readFile(filename);
           assert.equal(wav.toString("ascii", 0, 4), "RIFF");
           assert.equal(wav.readUInt32LE(24), 24_000);
@@ -240,7 +289,7 @@ test(
         );
       const filename = await audio.generate(
         text,
-        { speed: 0.5, voice: "af_heart" },
+        { voice: "af_heart" },
         signal
       );
       const metadata = await stat(filename);
@@ -250,16 +299,6 @@ test(
         warmWorker,
         "voice changes and long-input retries retain the model"
       );
-      for await (const speed of [0.49, 2.01]) {
-        await assert.rejects(
-          audio.generate(
-            "Reject invalid speed.",
-            { speed, voice: "af_heart" },
-            signal
-          ),
-          /Speech synthesis failed/u
-        );
-      }
       assert.equal(audio["worker"], warmWorker);
       assert.equal(
         audio["player"],

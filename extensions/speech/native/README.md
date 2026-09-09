@@ -14,7 +14,7 @@ npm run setup:speech
 
 Setup builds the pinned dependency and downloads approximately 101 MiB of pinned model, pronunciation, and voice assets. SwiftPM also downloads build dependencies, including a text-normalization binary. Setup does not install a toolchain, request administrator access, change shell profiles, or play audio.
 
-Run setup once after migrating from MLX or the experimental native executable. Readiness requires the current helper's ALBERT routing acknowledgement, so an older executable cannot silently pass. Saved speech preferences remain unchanged. Old Python environments and caches are not deleted or used.
+Run setup once after upgrading from a helper that changes Kokoro's synthesis speed. Readiness requires both the ALBERT routing acknowledgement and `playbackRate: 1`, the pitch-preserving playback protocol version. An older executable cannot silently pass. Saved speech preferences remain unchanged. Old Python environments and caches are not deleted or used.
 
 ## Model configuration
 
@@ -32,7 +32,8 @@ The committed background optimization remains: open playback and synthesize `Rea
 - `Sources/PiSpeech/Assets.swift`: offline file checks and SHA-256 verification.
 - `Sources/PiSpeech/Protocol.swift`: bounded JSON requests and serialized responses.
 - `Sources/PiSpeech/Player.swift`: persistent audio output and render acknowledgements.
-- `Sources/SpeechCore/Audio.swift`: bounded PCM conversion, WAV validation, and pause-preserving buffers.
+- `Sources/SpeechCore/Audio.swift`: bounded PCM conversion and WAV validation.
+- `Sources/SpeechCore/Playback.swift`: the shared AVAudioPlayerNode/AVAudioUnitTimePitch graph, also exercised by offline tests.
 
 ## Runtime and privacy
 
@@ -41,9 +42,11 @@ The committed background optimization remains: open playback and synthesize `Rea
 - Every runtime invocation uses `sandbox-exec` with network access denied. Missing sandbox support fails readiness. `ModelHub.offlineMode` is also enabled, but some upstream pronunciation download paths bypass it.
 - Only explicit setup downloads assets. `assets.json` pins the model revision and every source and installed checksum. Readiness checks file sizes; synthesis startup verifies SHA-256 hashes before loading models.
 - Third-party logs are suppressed. Synthesis responses contain numeric IDs and fixed error codes, never input text or underlying exception messages. Protocol output uses a separate file descriptor.
+- Kokoro always synthesizes at speed 1. Synthesis requests carry text and voice, never playback speed. Cached WAVs and prepared chunks are reused across speed changes.
 - Synthesis writes private 24 kHz mono PCM16 WAVs. Non-finite audio is rejected. Only exact leading zeros are trimmed, retaining 20 ms before the first nonzero sample. Bulk PCM encoding preserves the previous bytes.
 - Long phoneme sequences split at word boundaries. Acoustic-length errors retry shorter sequences. Neither text nor audio is silently truncated.
-- Playback keeps an AVAudioEngine source open. Pause retains the sample position. A separate timer reports render acknowledgements outside the audio callback. Device changes invalidate playback so an explicit retry can reopen the output.
+- Playback keeps an AVAudioEngine graph warm, with AVAudioPlayerNode feeding AVAudioUnitTimePitch. Playback rates of 0.5–2 preserve pitch and can change without restarting speech. Pause freezes the entire graph to retain buffered audio; resume restarts rendering. Stop resets scheduled audio and the time-pitch unit.
+- A serial queue owns playback state. A timer reports render acknowledgements, including estimated processing and device latency. `.dataPlayedBack` completion accounts for downstream processing and device latency; cancelled-buffer callbacks cannot complete a newer playback. Initial readiness renders a short silent buffer through the complete graph. Device changes invalidate playback so an explicit retry can reopen the output.
 - Cancellation terminates only the owned synthesis process. Cached playback and its separate output process remain available. Shutdown kills both processes and removes temporary audio.
 
 ## Verification
@@ -54,7 +57,7 @@ npm run test:speech-native
 npm run test:speech-local
 ```
 
-`npm run check` uses fake synthesis and playback without downloading models or building Swift. The standalone Swift test executable checks PCM buffering, trimming, exact encoding bytes, and WAV validation without XCTest or inference. The local integration test requires setup; it checks real synthesis and opens the output device, but plays only synthetic silence.
+`npm run check` uses fake synthesis and playback without downloading models or building Swift. The standalone Swift test executable checks trimming, exact encoding bytes, WAV validation, and offline rendering through the production playback graph without XCTest, inference, or an output device. It verifies playback duration and preservation of a 440 Hz tone at 0.5/1/1.25/1.5/2×. The local integration test requires setup; it checks real synthesis, cache reuse across speeds, playback timing, pause/resume, speed changes while paused, and cancellation. It opens the output device but plays only synthetic silence.
 
 Use the [first-listen benchmark](../../../scripts/benchmarks/speech-first-listen.mjs) for new startup measurements. Keep important findings and their limitations in [speech research](../../../docs/research/speech.md), not separate reports or raw-result collections.
 

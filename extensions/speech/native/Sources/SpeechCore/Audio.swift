@@ -81,27 +81,3 @@ extension Data {
   func u16(_ index: Int) -> UInt16 { UInt16(self[index]) | UInt16(self[index + 1]) << 8 }
   func u32(_ index: Int) -> UInt32 { UInt32(u16(index)) | UInt32(u16(index + 2)) << 16 }
 }
-
-/// The render callback advances this buffer only while it is unpaused.
-public struct PlaybackBuffer {
-  public let samples: [Float]
-  public private(set) var position = 0
-  public var paused: Bool
-
-  public init(samples: [Float], paused: Bool = false) {
-    self.samples = samples
-    self.paused = paused
-  }
-
-  public mutating func read(into output: UnsafeMutableBufferPointer<Float>) -> (
-    started: Bool, done: Bool
-  ) {
-    output.initialize(repeating: 0)
-    guard !paused else { return (false, false) }
-    let started = position == 0 && !samples.isEmpty
-    let count = min(output.count, samples.count - position)
-    for index in 0..<count { output[index] = samples[position + index] }
-    position += count
-    return (started, position == samples.count)
-  }
-}

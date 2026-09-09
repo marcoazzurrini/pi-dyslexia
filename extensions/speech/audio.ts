@@ -10,10 +10,18 @@ import { promisify } from "node:util";
 import { ignoreRejection } from "./async.ts";
 import { setupPath, workerCommand, workerEnvironment } from "./runtime.ts";
 
-export interface VoiceSettings {
-  speed: number;
+export interface SynthesisSettings {
   voice: string;
 }
+export interface VoiceSettings extends SynthesisSettings {
+  speed: number;
+}
+
+export const validateSpeed = (speed: number): void => {
+  if (!Number.isFinite(speed) || speed < 0.5 || speed > 2) {
+    throw new RangeError("Playback speed must be between 0.5 and 2.");
+  }
+};
 type WorkerProcess = ChildProcessByStdio<Writable, Readable, null>;
 interface StartupTimeout {
   handle?: ReturnType<typeof setTimeout>;
@@ -115,9 +123,13 @@ export class LocalAudio {
           timeout: 30_000,
         }
       );
-      // An older experimental executable must be rebuilt before it is used.
+      // A helper without pitch-preserving playback must be rebuilt before it is used.
       const status = JSON.parse(stdout);
-      return status.ready === true && status.albert === "cpuAndGPU";
+      return (
+        status.ready === true &&
+        status.albert === "cpuAndGPU" &&
+        status.playbackRate === 1
+      );
     } catch {
       return false;
     }
@@ -196,7 +208,7 @@ export class LocalAudio {
     return child;
   }
 
-  async warm(settings: VoiceSettings, signal: AbortSignal): Promise<void> {
+  async warm(settings: SynthesisSettings, signal: AbortSignal): Promise<void> {
     signal.throwIfAborted();
     // Exercise pronunciation and inference, not just imports. Never play the sample.
     await Promise.all([
@@ -207,14 +219,14 @@ export class LocalAudio {
 
   generate(
     text: string,
-    settings: VoiceSettings,
+    settings: SynthesisSettings,
     signal: AbortSignal,
     warmup = false
   ): Promise<string> {
     const task = this.generateAfter(
       this.serial,
       text,
-      settings,
+      { voice: settings.voice },
       signal,
       warmup
     );
@@ -226,7 +238,7 @@ export class LocalAudio {
     child: WorkerProcess,
     id: number,
     text: string,
-    settings: VoiceSettings,
+    settings: SynthesisSettings,
     signal: AbortSignal
   ): Promise<void> {
     const completion: PromiseWithResolvers<void> = Promise.withResolvers();
@@ -255,7 +267,9 @@ export class LocalAudio {
       if (signal.aborted) {
         abort();
       } else {
-        child.stdin.write(`${JSON.stringify({ id, text, ...settings })}\n`);
+        child.stdin.write(
+          `${JSON.stringify({ id, text, voice: settings.voice })}\n`
+        );
       }
       await completion.promise;
     } finally {
@@ -267,7 +281,7 @@ export class LocalAudio {
   private async generateAfter(
     previous: Promise<void>,
     text: string,
-    settings: VoiceSettings,
+    settings: SynthesisSettings,
     signal: AbortSignal,
     warmup: boolean
   ): Promise<string> {
@@ -276,7 +290,7 @@ export class LocalAudio {
     if (this.closed) {
       throw new Error("Speech is closed.");
     }
-    const key = JSON.stringify([text, settings.voice, settings.speed]);
+    const key = JSON.stringify([text, settings.voice]);
     const cached = !warmup && this.cache.get(key);
     if (cached) {
       this.cache.delete(key);
@@ -420,8 +434,9 @@ export class LocalAudio {
     return completion.promise;
   }
 
-  play(filename: string, signal: AbortSignal) {
+  play(filename: string, signal: AbortSignal, speed = 1) {
     signal.throwIfAborted();
+    validateSpeed(speed);
     this.counter += 1;
     const id = this.counter;
     const started = Promise.withResolvers<number>();
@@ -431,12 +446,13 @@ export class LocalAudio {
     void ignoreRejection(done.promise);
     let child: WorkerProcess | undefined;
     let paused = false;
+    let playbackSpeed = speed;
     let began = false;
     let finished = false;
     const listeners = new AbortController();
-    const send = (action: string) => {
+    const send = (action: string, rate?: number) => {
       if (child && this.player === child && !child.stdin.destroyed) {
-        child.stdin.write(`${JSON.stringify({ action, id })}\n`);
+        child.stdin.write(`${JSON.stringify({ action, id, speed: rate })}\n`);
       }
     };
     const finish = (error?: Error) => {
@@ -491,7 +507,7 @@ export class LocalAudio {
           },
         };
         child.stdin.write(
-          `${JSON.stringify({ action: "play", id, path: filename, paused })}\n`
+          `${JSON.stringify({ action: "play", id, path: filename, paused, speed: playbackSpeed })}\n`
         );
       } catch (error) {
         finish(
@@ -511,6 +527,14 @@ export class LocalAudio {
       resume: () => {
         paused = false;
         send("resume");
+      },
+      setSpeed: (rate: number) => {
+        validateSpeed(rate);
+        if (finished) {
+          return;
+        }
+        playbackSpeed = rate;
+        send("rate", rate);
       },
       started: started.promise,
     };

@@ -8,7 +8,7 @@ Updated 2026-09-09. [Issue #4](https://github.com/marcoazzurrini/pi-dyslexia/iss
 
 Keep the earlier startup optimization: open playback and silently synthesize `Ready to read.` while Pi responds, then prepare the first speech chunk. Playback waits for the final eligible answer and rechecks text and settings before reusing prepared audio.
 
-Kokoro offers preset voices, native speed control, and synthesis faster than playback. The earlier alternatives did not establish a better overall choice: Pocket TTS delivered streaming audio sooner; the tested VoxCPM2 configuration was slower than real time. No engine won a human quality comparison.
+Kokoro offers preset voices and synthesis faster than playback. The extension now always synthesizes at speed 1 and applies the selected speed during playback instead of using Kokoro's native speed control. The earlier alternatives did not establish a better overall choice: Pocket TTS delivered streaming audio sooner; the tested VoxCPM2 configuration was slower than real time. No engine won a human quality comparison.
 
 ## What the timing means
 
@@ -17,6 +17,16 @@ Kokoro offers preset voices, native speed control, and synthesis faster than pla
 - **Prepared:** the first speech chunk and output device are already ready before Play.
 
 There is no inactivity timer that unloads the model. Preparation hides startup; it does not remove it. Short responses can finish before preparation does.
+
+## Playback speed
+
+The user reported better articulation when normal-speed Kokoro audio was accelerated in a browser. The extension now uses AVAudioPlayerNode feeding AVAudioUnitTimePitch, with pitch fixed at zero and playback rate set to 0.5–2. The audio cache and speculative preparation depend on voice and text/content mode, not playback speed. Active and paused playback accept rate changes without regeneration or restarting the sentence.
+
+Apple documents [independent rate and pitch control](https://developer.apple.com/documentation/avfaudio/avaudiounittimepitch). Its [`.dataPlayedBack` callback](https://developer.apple.com/documentation/avfaudio/avaudioplayernodecompletioncallbacktype/dataplayedback) accounts for downstream processing and device latency. The implementation uses this callback rather than declaring completion when the source consumes its final sample. Pause freezes the entire graph, including the time-pitch unit. Cancellation invalidates completion callbacks and resets the effect before replay.
+
+Validation: 19 default tests passed, along with three Swift checks. Offline rendering of the production graph preserved a 440 Hz tone and produced the expected duration at 0.5/1/1.25/1.5/2×. Both native integration tests passed against the rebuilt debug and release helpers using the existing assets and an isolated copy of the TypeScript runtime boundary; the installed helper and preferences were not changed. Integration included all five voices, normal-speed synthesis, cache reuse across selected speeds, long input, cancellation/restart, playback duration, live rate changes, rate changes while paused, stopping while paused, and pause before the first render. Only synthetic silence reached the output device.
+
+These checks do not establish browser-identical speech quality. Human comparison at 1.25× and 1.5×, live-Pi testing, and physical device changes remain necessary. Recheck first-listen latency, gaps between chunks, and whether one-chunk prefetch stays ahead at 2×: normal-speed synthesis produces more audio, the effect adds processing latency, and completion now waits for the device. The older timings below describe accelerated synthesis and the previous playback graph, not this implementation. The benchmark now forwards playback speed and scales the source onset estimate; it still does not measure sound with a microphone.
 
 ## Measurements
 

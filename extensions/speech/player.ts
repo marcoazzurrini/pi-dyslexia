@@ -1,5 +1,6 @@
 import { captureGeneration, ignoreRejection } from "./async.ts";
-import type { LocalAudio, VoiceSettings } from "./audio.ts";
+import { validateSpeed } from "./audio.ts";
+import type { LocalAudio, SynthesisSettings, VoiceSettings } from "./audio.ts";
 import { speechChunks } from "./text.ts";
 
 export interface Answer {
@@ -25,7 +26,7 @@ export class SpeechPlayer {
   answer?: Answer;
   index = 0;
   chunks: string[] = [];
-  settings: VoiceSettings = { speed: 1, voice: "af_heart" };
+  private preferences: VoiceSettings = { speed: 1, voice: "af_heart" };
   includeAll = false;
   finished: Promise<void> = Promise.resolve();
   private signal?: AbortController;
@@ -49,6 +50,24 @@ export class SpeechPlayer {
     this.reportError = reportError;
   }
 
+  get settings(): Readonly<VoiceSettings> {
+    return { ...this.preferences };
+  }
+
+  set settings(settings: VoiceSettings) {
+    validateSpeed(settings.speed);
+    this.preferences = { ...settings };
+    this.playback?.setSpeed(settings.speed);
+  }
+
+  private get synthesisSettings(): SynthesisSettings {
+    return { voice: this.preferences.voice };
+  }
+
+  private get preparationKey(): string {
+    return JSON.stringify([this.preferences.voice, this.includeAll]);
+  }
+
   get busy(): boolean {
     return ["loading", "playing", "paused"].includes(this.state);
   }
@@ -62,15 +81,15 @@ export class SpeechPlayer {
       this.preparation = new AbortController();
       // Foreground playback reports failures; background preparation never interrupts text.
       void ignoreRejection(
-        this.audio.warm({ ...this.settings }, this.preparation.signal)
+        this.audio.warm(this.synthesisSettings, this.preparation.signal)
       );
     }
     if (markdown === undefined) {
       this.prepared = undefined;
       return;
     }
-    const settings = { ...this.settings };
-    const key = JSON.stringify([settings, this.includeAll]);
+    const settings = this.synthesisSettings;
+    const key = this.preparationKey;
     if (!markdown || this.preparing || this.prepared?.settings === key) {
       return;
     }
@@ -90,7 +109,7 @@ export class SpeechPlayer {
 
   private async prepareFirst(
     text: string,
-    settings: VoiceSettings,
+    settings: SynthesisSettings,
     controller: AbortController
   ) {
     try {
@@ -181,11 +200,11 @@ export class SpeechPlayer {
     text: string,
     signal: AbortSignal,
     prepared?: Prepared
-  ): Promise<{ key: string; path: string; settings: VoiceSettings }> {
+  ): Promise<{ key: string; path: string; settings: SynthesisSettings }> {
     const ready = await prepared?.result;
     await this.waitForResume(signal);
-    const settings = { ...this.settings };
-    const key = JSON.stringify([settings, this.includeAll]);
+    const settings = this.synthesisSettings;
+    const key = this.preparationKey;
     const matches = prepared?.text === text && prepared.settings === key;
     if (ready?.error && matches) {
       throw ready.error;
@@ -196,7 +215,7 @@ export class SpeechPlayer {
         : await this.audio.generate(text, settings, signal);
     signal.throwIfAborted();
     await this.waitForResume(signal);
-    if (key !== JSON.stringify([this.settings, this.includeAll])) {
+    if (key !== this.preparationKey) {
       return this.resolveChunk(text, signal, prepared);
     }
     return { key, path: filename, settings };
@@ -209,7 +228,11 @@ export class SpeechPlayer {
   ): Promise<Prepared | undefined> {
     await this.waitForResume(signal);
     const chunk = await this.resolveChunk(text, signal, prepared);
-    const playback = this.audio.play(chunk.path, signal);
+    const playback = this.audio.play(
+      chunk.path,
+      signal,
+      this.preferences.speed
+    );
     this.playback = playback;
     this.playbackStarted = false;
     await playback.started;

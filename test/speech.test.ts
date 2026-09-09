@@ -8,7 +8,7 @@ import { setImmediate as tick } from "node:timers/promises";
 import type { ExtensionEvent } from "@earendil-works/pi-coding-agent";
 
 import { LocalAudio } from "../extensions/speech/audio.ts";
-import type { VoiceSettings } from "../extensions/speech/audio.ts";
+import type { SynthesisSettings } from "../extensions/speech/audio.ts";
 import type * as SpeechModule from "../extensions/speech/index.ts";
 import { SpeechPlayer } from "../extensions/speech/player.ts";
 import { speechChunks } from "../extensions/speech/text.ts";
@@ -25,20 +25,21 @@ import {
 import type { Notices, Widgets } from "./helpers.ts";
 
 type Generation = PromiseWithResolvers<string> & {
-  settings: VoiceSettings;
+  settings: SynthesisSettings;
   signal: AbortSignal;
   text: string;
 };
 type Playback = PromiseWithResolvers<void> & {
   path: string;
   paused: boolean;
+  speed: number;
   signal: AbortSignal;
 };
 
 const fakeAudio = ({ deferGeneration = false } = {}) => {
   const generated: Generation[] = [];
   const played: Playback[] = [];
-  const warmed: { settings: VoiceSettings; signal: AbortSignal }[] = [];
+  const warmed: { settings: SynthesisSettings; signal: AbortSignal }[] = [];
   return {
     checkReady() {
       return Promise.resolve(true);
@@ -48,15 +49,15 @@ const fakeAudio = ({ deferGeneration = false } = {}) => {
       return Promise.resolve();
     },
     closed: false,
-    generate(text: string, settings: VoiceSettings, signal: AbortSignal) {
+    generate(text: string, settings: SynthesisSettings, signal: AbortSignal) {
       const deferred = Promise.withResolvers<string>();
       generated.push({ settings, signal, text, ...deferred });
       return deferGeneration ? deferred.promise : Promise.resolve(text);
     },
     generated,
-    play(path: string, signal: AbortSignal) {
+    play(path: string, signal: AbortSignal, speed = 1) {
       const deferred: PromiseWithResolvers<void> = Promise.withResolvers();
-      const entry = { path, paused: false, signal, ...deferred };
+      const entry = { path, paused: false, signal, speed, ...deferred };
       played.push(entry);
       signal.addEventListener("abort", () => deferred.reject(signal.reason), {
         once: true,
@@ -69,11 +70,14 @@ const fakeAudio = ({ deferGeneration = false } = {}) => {
         resume: () => {
           entry.paused = false;
         },
+        setSpeed: (rate: number) => {
+          entry.speed = rate;
+        },
         started: Promise.resolve(0),
       };
     },
     played,
-    warm(settings: VoiceSettings, signal: AbortSignal) {
+    warm(settings: SynthesisSettings, signal: AbortSignal) {
       warmed.push({ settings, signal });
       return Promise.resolve();
     },
@@ -143,13 +147,19 @@ test("player prefetches one chunk, pauses without restarting, replays, and stops
   player.toggle();
   assert.equal(audio.played[0].paused, false);
   assert.equal(audio.played.length, 1, "resume does not restart the file");
-  player.settings.speed = 1.5;
-  audio.played[0].resolve();
-  await until(() => audio.played.length === 2);
+  player.settings = { ...player.settings, speed: 1.5 };
+  assert.equal(audio.played[0].speed, 1.5, "change the active playback rate");
   assert.equal(
-    last(audio.generated).settings.speed,
-    1.5,
-    "regenerate the buffered sentence at the new speed"
+    audio.generated.length,
+    2,
+    "speed changes do not regenerate speech"
+  );
+  audio.played[0].resolve();
+  await until(() => audio.played.length === 2 && audio.generated.length === 3);
+  assert.equal(audio.played[1].speed, 1.5);
+  assert.deepEqual(
+    audio.generated.map(({ settings }) => settings),
+    [{ voice: "af_heart" }, { voice: "af_heart" }, { voice: "af_heart" }]
   );
   player.stop();
   await player.finished;
@@ -254,10 +264,10 @@ test("silent preparation transfers in-flight audio, validates final text/setting
     p.prepare("Prepared sentence.", true);
     await tick();
     if (change === "voice") {
-      p.settings.voice = "bf_emma";
+      p.settings = { ...p.settings, voice: "bf_emma" };
     }
     if (change === "speed") {
-      p.settings.speed = 1.5;
+      p.settings = { ...p.settings, speed: 1.5 };
     }
     if (change === "includeAll") {
       p.includeAll = true;
@@ -267,10 +277,11 @@ test("silent preparation transfers in-flight audio, validates final text/setting
     await until(() => fake.played.length === 1);
     assert.equal(
       fake.generated.length,
-      2,
-      `validate ${change} before reusing speculation`
+      change === "speed" ? 1 : 2,
+      `validate ${change} without discarding audio for playback-only changes`
     );
     assert.equal(fake.played[0].path, text);
+    assert.equal(fake.played[0].speed, change === "speed" ? 1.5 : 1);
     await p.close();
   }
   const cancelled = fakeAudio();
@@ -280,6 +291,29 @@ test("silent preparation transfers in-flight audio, validates final text/setting
   assert.equal(cancelled.warmed[0].signal.aborted, true);
   assert.equal(cancelled.played.length, 0);
   await p.close();
+});
+
+test("speed changes during synthesis preserve in-flight audio and use the latest playback rate", async () => {
+  const audio = fakeAudio({ deferGeneration: true });
+  const player = new SpeechPlayer(audio, noop, assert.fail);
+  player.settings = { speed: 1.25, voice: "af_heart" };
+  player.start({ id: "speed", text: "Keep the original sentence." });
+  await until(() => audio.generated.length === 1);
+  player.settings = { ...player.settings, speed: 1.5 };
+  player.toggle();
+  audio.generated[0].resolve("original.wav");
+  await tick();
+  assert.equal(audio.played.length, 0);
+  player.settings = { ...player.settings, speed: 2 };
+  player.toggle();
+  await until(() => audio.played.length === 1);
+  assert.equal(audio.generated.length, 1);
+  assert.deepEqual(audio.generated[0].settings, { voice: "af_heart" });
+  assert.equal(audio.played[0].speed, 2);
+  assert.equal(audio.played[0].path, "original.wav");
+  player.settings = { ...player.settings, speed: 0.5 };
+  assert.equal(audio.played[0].speed, 0.5);
+  await player.close();
 });
 
 test("playing status waits for the first buffer and pause during device startup is preserved", async () => {
@@ -446,8 +480,15 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
       assert.equal(playingWidget.handleMouse, undefined);
       await command("");
       assert.equal(audio.played[0].paused, true);
+      await command("speed 1.25");
+      assert.equal(audio.played[0].speed, 1.25);
+      assert.equal(
+        audio.played.length,
+        1,
+        "changing speed does not restart playback"
+      );
       assert.deepEqual(widget(widgets).render(200), [
-        "Speech: paused | 1x | auto on",
+        "Speech: paused | 1.25x | auto on",
       ]);
       await event("agent_start");
       branch.push(assistantEntry("newer"));

@@ -82,9 +82,11 @@ async function observe(scenario, round) {
   player.settings = { ...settings };
   const play = audio.play.bind(audio);
   let start;
-  audio.play = (filename, signal) => {
+  audio.play = (filename, signal, speed = 1) => {
     const signalInfo = mute(filename);
-    const playback = play(filename, signal);
+    // The WAV is synthesized at 1x; estimate its onset on the playback timeline.
+    signalInfo.signalOnsetMs /= speed;
+    const playback = play(filename, signal, speed);
     playback.started.then((outputDelayMs) => {
       first.resolve({
         ackMs: performance.now() - start,

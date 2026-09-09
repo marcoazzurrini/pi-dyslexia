@@ -101,6 +101,7 @@ test(
           done: Promise.resolve(),
           pause: noop,
           resume: noop,
+          setSpeed: noop,
           started: Promise.resolve(0),
         };
       },
@@ -390,6 +391,8 @@ test(
       test "$CFFIXED_USER_HOME" = "$PI_DYSLEXIA_NATIVE_HOME"
       test "\${FAIL_CHECK:-0}" = 0
       if [ "\${LEGACY_CHECK:-0}" = 0 ]; then
+        printf '%s\\n' '{"ready":true,"albert":"cpuAndGPU","playbackRate":1}'
+      else
         printf '%s\\n' '{"ready":true,"albert":"cpuAndGPU"}'
       fi
     `
@@ -451,7 +454,7 @@ test(
       assert.equal(
         await audio.checkReady(),
         false,
-        "an old experimental binary requires rebuilding"
+        "a helper without pitch-preserving playback requires rebuilding"
       );
       delete process.env.LEGACY_CHECK;
       process.env.FAIL_CHECK = "1";
