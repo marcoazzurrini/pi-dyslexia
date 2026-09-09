@@ -13,9 +13,13 @@
   "files": [
     "extensions/index.ts",
     "extensions/speech/*.ts",
-    "extensions/speech/worker.py",
-    "extensions/speech/setup.sh",
-    "extensions/speech/requirements.txt",
+    "extensions/speech/native/Package.swift",
+    "extensions/speech/native/Package.resolved",
+    "extensions/speech/native/Sources/",
+    "extensions/speech/native/Tests/",
+    "extensions/speech/native/assets.ts",
+    "extensions/speech/native/setup.sh",
+    "extensions/speech/native/README.md",
     "extensions/SKILL.md",
     "LICENSE"
   ],
@@ -29,8 +33,9 @@
     "hooks:install": "lefthook install",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
     "test": "node --experimental-strip-types --test test/*.test.ts",
-    "test:speech-local": "python3 test/speech-worker.py && PI_DYSLEXIA_AUDIO_TEST=1 node --experimental-strip-types --test test/speech-local.test.ts",
-    "setup:speech": "sh extensions/speech/setup.sh",
+    "test:speech-local": "npm run test:speech-native && PI_DYSLEXIA_AUDIO_TEST=1 node --experimental-strip-types --test test/speech-local.test.ts",
+    "setup:speech": "sh extensions/speech/native/setup.sh",
+    "test:speech-native": "swift run --package-path extensions/speech/native --jobs 4 --disable-automatic-resolution speech-core-tests",
     "preversion": "npm test"
   },
   "dependencies": {

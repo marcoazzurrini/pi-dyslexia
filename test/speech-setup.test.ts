@@ -136,10 +136,10 @@ test(
           confirmations += 1;
           assert.match(title, /Set up read-aloud/u);
           for (const term of [
-            "uv",
-            "astral.sh",
-            "Python 3.12",
-            "dictionary",
+            "Swift 6",
+            "command-line tools",
+            "FluidAudio",
+            "pronunciation",
             "Kokoro",
             "Internet",
             "disk space",
@@ -329,120 +329,180 @@ test(
   }
 );
 
-test("installer bootstraps missing prerequisites without real downloads and cancels its process group", async () => {
-  const home = await mkdtemp(nodePath.join(tmpdir(), "pi setup shell "));
-  const env = {
-    FAIL_CHECK: process.env.FAIL_CHECK,
-    HOME: process.env.HOME,
-    PATH: process.env.PATH,
-  };
-  const script = (name: string, text: string) =>
-    writeFile(nodePath.join(home, name), `#!/bin/sh\nset -eu\n${text}\n`, {
-      mode: 0o700,
-    });
-  let audio: LocalAudio | undefined;
-  try {
-    await mkdir(nodePath.join(home, "bin"));
-    for await (const [name, path] of [
-      ["sh", "/bin/sh"],
-      ["rm", "/bin/rm"],
-      ["dirname", "/usr/bin/dirname"],
-      ["mktemp", "/usr/bin/mktemp"],
-    ] as const) {
-      await symlink(path, nodePath.join(home, "bin", name));
-    }
-    await script(
-      "bin/uname",
-      'if [ "$1" = -s ]; then echo Darwin; else echo arm64; fi'
-    );
-    await script(
-      "bin/curl",
-      'for target; do :; done\n/bin/cp "$HOME/fake-installer" "$target"'
-    );
-    await script(
-      "fake-installer",
-      'test "$UV_UNMANAGED_INSTALL" = "$HOME/.cache/pi-dyslexia/bin"\necho bootstrap >> "$HOME/log"\n/bin/mkdir -p "$UV_UNMANAGED_INSTALL"\n/bin/cp "$HOME/fake-uv" "$UV_UNMANAGED_INSTALL/uv"'
-    );
-    await script(
-      "fake-uv",
-      'printf "uv:%s\\n" "$*" >> "$HOME/log"\nif [ "$1" = venv ]; then\n/bin/mkdir -p "$HOME/.cache/pi-dyslexia/venv/bin"\n/bin/cp "$HOME/fake-python" "$HOME/.cache/pi-dyslexia/venv/bin/python"\nfi'
-    );
-    await script(
-      "fake-python",
-      `printf "python:%s\\n" "$*" >> "$HOME/log"\ncase "$*" in *--check*) exit "\${FAIL_CHECK:-0}" ;; esac`
-    );
-    await copyFile(
-      new URL("../extensions/speech/audio.ts", import.meta.url),
-      nodePath.join(home, "audio.ts")
-    );
-    await copyFile(
-      new URL("../extensions/speech/async.ts", import.meta.url),
-      nodePath.join(home, "async.ts")
-    );
-    await copyFile(
-      new URL("../extensions/speech/setup.sh", import.meta.url),
-      nodePath.join(home, "setup.sh")
-    );
-    process.env.HOME = home;
-    process.env.PATH = nodePath.join(home, "bin");
-    delete process.env.FAIL_CHECK;
-    const { LocalAudio: IsolatedAudio }: { LocalAudio: typeof LocalAudio } =
-      await import(pathToFileURL(nodePath.join(home, "audio.ts")).href);
-    audio = new IsolatedAudio();
-    assert.equal(
-      await audio.checkReady(),
-      false,
-      "missing Python is a readiness state, not a thrown error"
-    );
-    await audio.install(new AbortController().signal);
-    assert.equal(await audio.checkReady(), true);
-    let log = await readFile(nodePath.join(home, "log"), "utf-8");
-    assert.match(log, /bootstrap/u);
-    assert.match(log, /uv:venv --python 3.12/u);
-    assert.match(log, /uv:pip install --python/u);
-    assert.match(log, /python:.*worker.py --download/u);
-    assert.match(log, /python:.*worker.py --check/u);
-    await audio.install(new AbortController().signal);
-    log = await readFile(nodePath.join(home, "log"), "utf-8");
-    assert.equal(
-      log.match(/bootstrap/gu)?.length,
-      1,
-      "reuse the private uv installation"
-    );
-    assert.equal(
-      log.match(/uv:venv/gu)?.length,
-      1,
-      "reuse the Python environment"
-    );
-    process.env.FAIL_CHECK = "1";
-    assert.equal(
-      await audio.checkReady(),
-      false,
-      "incomplete installations fail the offline check"
-    );
-    await assert.rejects(audio.install(new AbortController().signal));
-    delete process.env.FAIL_CHECK;
-    await script(
-      "setup.sh",
-      '/bin/sleep 60 &\necho "$!" > "$HOME/child.pid"\nwait'
-    );
-    const controller = new AbortController();
-    const running = assert.rejects(audio.install(controller.signal));
-    let pid;
+test(
+  "native setup checks tools, builds, verifies, and cancels its process group without real downloads",
+  {
+    skip: process.platform !== "darwin" || process.arch !== "arm64",
+  },
+  async () => {
+    const home = await mkdtemp(nodePath.join(tmpdir(), "pi setup shell "));
+    const env = {
+      FAIL_CHECK: process.env.FAIL_CHECK,
+      HOME: process.env.HOME,
+      LEGACY_CHECK: process.env.LEGACY_CHECK,
+      MISSING_TOOLS: process.env.MISSING_TOOLS,
+      PATH: process.env.PATH,
+    };
+    const script = (name: string, text: string) =>
+      writeFile(nodePath.join(home, name), `#!/bin/sh\nset -eu\n${text}\n`, {
+        mode: 0o700,
+      });
+    let audio: LocalAudio | undefined;
     try {
-      pid = await until<number | false>(
-        async () => {
+      await mkdir(nodePath.join(home, "bin"));
+      for await (const [name, path] of [
+        ["sh", "/bin/sh"],
+        ["rm", "/bin/rm"],
+        ["dirname", "/usr/bin/dirname"],
+        ["mkdir", "/bin/mkdir"],
+        ["mv", "/bin/mv"],
+        ["install", "/usr/bin/install"],
+        ["basename", "/usr/bin/basename"],
+        ["ditto", "/usr/bin/ditto"],
+      ] as const) {
+        await symlink(path, nodePath.join(home, "bin", name));
+      }
+      await script(
+        "bin/uname",
+        'if [ "$1" = -s ]; then echo Darwin; else echo arm64; fi'
+      );
+      await script("bin/xcrun", `exit "\${MISSING_TOOLS:-0}"`);
+      await script(
+        "bin/swift",
+        `
+      printf 'swift:%s\\n' "$*" >> "$HOME/log"
+      case "$*" in
+        *--show-bin-path*) printf '%s\\n' "$HOME/build" ;;
+        *) /bin/mkdir -p "$HOME/build/PiSpeech_PiSpeech.bundle"
+           /bin/cp "$HOME/fake-worker" "$HOME/build/pi-speech" ;;
+      esac
+    `
+      );
+      await script("bin/node", 'printf "assets:%s\\n" "$*" >> "$HOME/log"');
+      await script(
+        "fake-worker",
+        `
+      printf 'worker:%s\\n' "$*" >> "$HOME/log"
+      test "$CFFIXED_USER_HOME" = "$PI_DYSLEXIA_NATIVE_HOME"
+      test "\${FAIL_CHECK:-0}" = 0
+      if [ "\${LEGACY_CHECK:-0}" = 0 ]; then
+        printf '%s\\n' '{"ready":true,"albert":"cpuAndGPU"}'
+      fi
+    `
+      );
+      await copyFile(
+        new URL("../extensions/speech/audio.ts", import.meta.url),
+        nodePath.join(home, "audio.ts")
+      );
+      await copyFile(
+        new URL("../extensions/speech/runtime.ts", import.meta.url),
+        nodePath.join(home, "runtime.ts")
+      );
+      await copyFile(
+        new URL("../extensions/speech/async.ts", import.meta.url),
+        nodePath.join(home, "async.ts")
+      );
+      await mkdir(nodePath.join(home, "native"));
+      await copyFile(
+        new URL("../extensions/speech/native/setup.sh", import.meta.url),
+        nodePath.join(home, "native/setup.sh")
+      );
+      process.env.HOME = home;
+      process.env.PATH = nodePath.join(home, "bin");
+      delete process.env.FAIL_CHECK;
+      delete process.env.LEGACY_CHECK;
+      delete process.env.MISSING_TOOLS;
+      const { LocalAudio: IsolatedAudio }: { LocalAudio: typeof LocalAudio } =
+        await import(pathToFileURL(nodePath.join(home, "audio.ts")).href);
+      audio = new IsolatedAudio();
+      assert.equal(
+        await audio.checkReady(),
+        false,
+        "a missing native executable is a readiness state, not a thrown error"
+      );
+      process.env.MISSING_TOOLS = "1";
+      await assert.rejects(
+        audio.install(new AbortController().signal),
+        /Install Swift 6/u
+      );
+      delete process.env.MISSING_TOOLS;
+      await audio.install(new AbortController().signal);
+      assert.equal(await audio.checkReady(), true);
+      let log = await readFile(nodePath.join(home, "log"), "utf-8");
+      assert.match(
+        log,
+        /swift:build .* -c release .*--disable-automatic-resolution/u
+      );
+      assert.match(log, /assets:.*assets.ts/u);
+      assert.match(log, /worker:--verify/u);
+      assert.match(log, /worker:--check/u);
+      await audio.install(new AbortController().signal);
+      log = await readFile(nodePath.join(home, "log"), "utf-8");
+      assert.equal(
+        log.match(/worker:--verify/gu)?.length,
+        2,
+        "repair verifies every installation"
+      );
+      process.env.LEGACY_CHECK = "1";
+      assert.equal(
+        await audio.checkReady(),
+        false,
+        "an old experimental binary requires rebuilding"
+      );
+      delete process.env.LEGACY_CHECK;
+      process.env.FAIL_CHECK = "1";
+      assert.equal(
+        await audio.checkReady(),
+        false,
+        "incomplete installations fail the offline check"
+      );
+      await assert.rejects(audio.install(new AbortController().signal));
+      delete process.env.FAIL_CHECK;
+      await script(
+        "native/setup.sh",
+        '/bin/sleep 60 &\necho "$!" > "$HOME/child.pid"\nwait'
+      );
+      const controller = new AbortController();
+      const running = assert.rejects(audio.install(controller.signal));
+      let pid;
+      try {
+        pid = await until<number | false>(
+          async () => {
+            try {
+              return Number(
+                await readFile(nodePath.join(home, "child.pid"), "utf-8")
+              );
+            } catch (error) {
+              if (
+                error instanceof Error &&
+                "code" in error &&
+                error.code === "ENOENT"
+              ) {
+                return false;
+              }
+              throw error;
+            }
+          },
+          100,
+          10
+        );
+      } finally {
+        controller.abort();
+      }
+      await running;
+      assert.ok(pid && pid > 0, "the installer started a child process");
+      await until(
+        () => {
           try {
-            return Number(
-              await readFile(nodePath.join(home, "child.pid"), "utf-8")
-            );
+            process.kill(pid, 0);
+            return false;
           } catch (error) {
             if (
               error instanceof Error &&
               "code" in error &&
-              error.code === "ENOENT"
+              error.code === "ESRCH"
             ) {
-              return false;
+              return true;
             }
             throw error;
           }
@@ -450,38 +510,15 @@ test("installer bootstraps missing prerequisites without real downloads and canc
         100,
         10
       );
+      assert.throws(
+        () => process.kill(pid, 0),
+        { code: "ESRCH" },
+        "cancellation stops descendants, not only the installer shell"
+      );
     } finally {
-      controller.abort();
+      await audio?.close();
+      restoreEnvironment(env);
+      await rm(home, { force: true, recursive: true });
     }
-    await running;
-    assert.ok(pid && pid > 0, "the installer started a child process");
-    await until(
-      () => {
-        try {
-          process.kill(pid, 0);
-          return false;
-        } catch (error) {
-          if (
-            error instanceof Error &&
-            "code" in error &&
-            error.code === "ESRCH"
-          ) {
-            return true;
-          }
-          throw error;
-        }
-      },
-      100,
-      10
-    );
-    assert.throws(
-      () => process.kill(pid, 0),
-      { code: "ESRCH" },
-      "cancellation stops descendants, not only the installer shell"
-    );
-  } finally {
-    await audio?.close();
-    restoreEnvironment(env);
-    await rm(home, { force: true, recursive: true });
   }
-});
+);

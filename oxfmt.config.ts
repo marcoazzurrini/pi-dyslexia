@@ -6,6 +6,7 @@ export default defineConfig({
   ignorePatterns: [
     ...(ultracite.ignorePatterns ?? []),
     "docs/**",
+    "scripts/benchmarks/**",
     "**/*.md",
     "**/*.py",
     "**/*.sh",

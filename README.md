@@ -89,7 +89,7 @@ The extension appends instructions; it does not rewrite stored messages or code.
 
 ## Local speech (v0.4.0 preview)
 
-Version `0.4.0` adds local narration alongside the writing policy. It requires **Apple Silicon macOS, Pi 0.85.1 or newer, and English text**. Kokoro + MLX-Audio is the trial engine; [local measurements and remaining evaluation](docs/research/speech.md) are recorded separately. Listening comfort and technical pronunciation still need your assessment.
+Version `0.4.0` adds local narration alongside the writing policy. It requires **Apple Silicon macOS, Pi 0.85.1 or newer, and English text**. Kokoro runs locally through FluidAudio and Core ML, with ALBERT configured for CPU/GPU execution. Python and MLX are no longer runtime dependencies. The previous background warm-up and first-chunk preparation remain in place. See [speech decisions and measurements](docs/research/speech.md) and [runtime details](extensions/speech/native/README.md). Listening comfort and technical pronunciation still need your assessment; British presets currently use the US English pronunciation frontend.
 
 After installing or updating this package, start Pi normally. If read-aloud is not ready, Pi offers **Set up read-aloud** or **Not now**. Text responses work without speech setup. Choosing **Not now** (or dismissing the prompt) is remembered; you will not get an error after each answer.
 
@@ -99,9 +99,11 @@ To start setup later, or repair an incomplete installation, type this **inside P
 /speech setup
 ```
 
-Setup explains the downloads and asks for permission before running anything. It installs [uv](https://docs.astral.sh/uv/) from its official installer if needed, prepares Python 3.12, installs speech dependencies and the English dictionary, and downloads the pinned Kokoro model. It requires internet access and disk space and may take several minutes. No administrator access or shell profile changes are required. Pi shows setup status and a retry command if installation fails. Exiting or reloading Pi cancels its running installer.
+Setup explains the downloads and asks for permission before running anything. **Swift 6 and Apple's command-line tools must already be installed.** Setup builds the pinned FluidAudio helper and downloads approximately 101 MiB of verified Kokoro model, voice, and pronunciation assets, plus build dependencies. It requires internet access and disk space and may take several minutes. Setup does not install a toolchain, request administrator access, or change shell profiles. Pi shows setup status and a retry command if installation fails. Exiting or reloading Pi cancels its running installer.
 
-The runtime lives in `~/.cache/pi-dyslexia/venv`; a bootstrapped uv lives in `~/.cache/pi-dyslexia/bin`. Model files use Hugging Face's cache. Startup checks installed dependencies and model files offline, without loading the voice model or playing audio. Nothing downloads without setup consent. Setup itself does not play audio or read previous answers; it preserves any saved automatic-playback preference. Developers can also run `npm run setup:speech` from this checkout.
+The runtime lives in `~/.cache/pi-dyslexia/native/`, with its own model cache. Startup checks the helper and model files offline, without loading the voice model or playing audio. Nothing downloads without setup consent. Setup itself does not play audio or read previous answers; it preserves saved voice, speed, and automatic-playback preferences. Developers can also run `npm run setup:speech` from this checkout.
+
+After upgrading from Python or the experimental FluidAudio helper, run `/speech setup` once. An old helper fails readiness rather than silently running without the ALBERT optimization. The experimental `PI_DYSLEXIA_SPEECH_BACKEND` selector is no longer used. Existing Python environments and model caches are left untouched, but this extension no longer uses them.
 
 The installed package loads both the writing and speech extensions automatically. Fullscreen mode enables clickable controls; ordinary `pi` still supports shortcuts and commands. Restart Pi after updating. For development against an older installed package, use `npm install --legacy-peer-deps` and `pi -e ./extensions/speech/index.ts` from this repository. Do not add that entry point when the installed package already includes speech, or it will load twice.
 
@@ -132,13 +134,13 @@ The first-run setup choice is remembered in `~/.pi/agent/pi-dyslexia/speech-setu
 
 Speech reads a separate Markdown rendering, never an AI summary. The original message remains intact. Code blocks and URL destinations are skipped with spoken announcements by default. Inline identifiers are retained, tables are read row by row, and deleted text is identified as deleted. Speech is not a reliable way to copy code; use the original text for exact syntax. No word/sentence highlighting is implemented yet.
 
-When automatic speech is enabled and installed, synthesis and the audio device warm in the background while the agent responds. One first chunk is prepared silently from streaming text; playback still waits for `agent_settled` and validates the final text, voice, speed, and content mode. A short response can finish before preparation, so cold starts can still take several seconds. See the [latency measurements](docs/research/speech-latency.md#implementation-follow-up).
+When automatic speech is enabled and installed, synthesis and the audio device warm in the background while the agent responds. One first chunk is prepared silently from streaming text; playback still waits for `agent_settled` and validates the final text, voice, speed, and content mode. A short response can finish before preparation, so cold starts can still take several seconds. See the [latency measurements and their limits](docs/research/speech.md#measurements).
 
-Generation uses an owned Python subprocess. A separate sounddevice/PortAudio process keeps one output stream open across chunks and stops, so pause and stop do not wait for inference or reopen the device. Pause holds the sample position; small device buffers can still take a moment to drain. The widget reports playing only after the first output buffer. Only exact initial silence is trimmed, retaining a 20 ms safety margin; quiet speech and internal pauses remain intact. One upcoming chunk is generated ahead. Long sentences are split at 500 characters, so some boundaries may sound abrupt.
+Generation uses an owned Swift subprocess. A separate AVAudioEngine process keeps one output stream open across chunks and stops, so pause and stop do not wait for inference or reopen the device. Pause holds the sample position; small device buffers can still take a moment to drain. The widget reports playing only after the first output buffer. Only exact initial silence is trimmed, retaining a 20 ms safety margin; quiet speech and internal pauses remain intact. One upcoming chunk is generated ahead. Long sentences are split at 500 characters, so some boundaries may sound abrupt.
 
-`/speech stop` also suppresses narration of the currently running answer; the next agent run can narrate normally. `/speech auto off` cancels silent preparation but does not interrupt an already playing answer. `/speech off` closes the model and output stream. Cancelling active synthesis still kills that worker because MLX has no per-request interrupt; the next automatic run warms its replacement. The open stream retains its selected output device; after changing devices, use `/speech off` followed by `/speech auto on` if needed to reopen the default output.
+`/speech stop` also suppresses narration of the currently running answer; the next agent run can narrate normally. `/speech auto off` cancels silent preparation but does not interrupt an already playing answer. `/speech off` closes the model and output stream. Cancelling active synthesis still kills that worker because a Core ML prediction may not stop promptly; the next automatic run warms its replacement. Device changes invalidate the player rather than silently continuing on a stale stream. Retry playback to reopen the default output.
 
-No cloud fallback, microphone, transcript logging, or HTTP server is used. All five presets were tested with OS networking denied. Temporary WAV files are private, bounded to a 32 MiB cache per session, and deleted on eviction or normal shutdown/reload/session replacement. An OS crash or `SIGKILL` can leave temporary files named `pi-dyslexia-speech-*` in the system temporary directory. Model downloads remain cached. Headless, JSON, print, and RPC runs never play speech. Multiple independent Pi windows have independent players; stop one before listening in another.
+No cloud fallback, microphone, transcript logging, or HTTP server is used. Runtime network access is denied by an OS sandbox, including pronunciation paths that bypass FluidAudio's offline setting. Missing sandbox support disables speech instead of allowing network access. Temporary WAV files are private, bounded to a 32 MiB cache per session, and deleted on eviction or normal shutdown/reload/session replacement. An OS crash or `SIGKILL` can leave temporary files named `pi-dyslexia-speech-*` in the system temporary directory. Model downloads remain cached. Headless, JSON, print, and RPC runs never play speech. Multiple independent Pi windows have independent players; stop one before listening in another.
 
 ## Project layout
 
@@ -170,7 +172,7 @@ Typechecking runs when TypeScript, `tsconfig.json`, or dependency manifests are 
 
 The pre-push hook runs `npm test`. Node executes the TypeScript tests using type stripping; it does not check their types. `npm run check` runs both typechecking and tests. During development, run `npm run typecheck -- --watch` in a separate terminal for continuous type feedback while running tests independently.
 
-Oxlint extends Ultracite's core and bundled anti-slop presets without local rule relaxations. Oxfmt uses Ultracite's formatting preset. Documentation, the writing policy, Python, shell scripts, and text assets are outside this lint/format workflow. The generated npm lockfile is also excluded from formatting.
+Oxlint extends Ultracite's core and bundled anti-slop presets without local rule relaxations. Oxfmt uses Ultracite's formatting preset. Documentation, the writing policy, Swift, research benchmarks (including `scripts/benchmarks/`), Python, shell scripts, and text assets are outside this lint/format workflow. The generated npm lockfile is also excluded from formatting.
 
 ```sh
 npm run format         # Explicitly format eligible project files
@@ -191,7 +193,7 @@ With Node.js 22.6 or newer:
 npm test
 ```
 
-No build step is required. Pi loads the TypeScript entry points directly. Default tests fake synthesis and playback; they require no model download. On the setup Mac, run the opt-in worker/player checks (only silence is played):
+Pi loads the TypeScript entry points directly. Speech setup builds the native helper separately. Default tests fake synthesis and playback; they require no Swift build or model download. Run `npm run test:speech-native` for the model-free Swift checks. On the setup Mac, run the opt-in worker/player checks (only silence is played):
 
 ```sh
 npm run test:speech-local
@@ -203,14 +205,14 @@ npm run test:speech-local
 
 The upstream copyright and MIT permission notice are preserved in [`LICENSE`](LICENSE), scoped to the adapted skill. No upstream engine or proxy code is included. The old `vendor/` directory is removed.
 
-The package includes `extensions/index.ts`, `extensions/speech/` source and setup files, `extensions/SKILL.md`, and root `LICENSE`. The skill is not registered separately with Pi (`pi.skills` is empty); only the writing extension injects it and controls activation. Speech has a separate entry point and does not change the writing prompt. Model weights and the Python environment are not bundled. The speech runtime includes GPL-covered pronunciation dependencies; see the license notes in [speech research](docs/research/speech.md) before redistributing a bundled runtime.
+The package includes `extensions/index.ts`, `extensions/speech/` source and setup files, `extensions/SKILL.md`, and root `LICENSE`. The skill is not registered separately with Pi (`pi.skills` is empty); only the writing extension injects it and controls activation. Speech has a separate entry point and does not change the writing prompt. Model weights and a prebuilt helper are not bundled. FluidAudio, the Kokoro conversion, and the linked text-normalization project declare Apache-2.0 licenses. Review model and transitive licenses and preserve attribution before redistributing a bundled runtime; see [native runtime details](extensions/speech/native/README.md).
 
 ## How we work
 
 **Issue → research → design decision → implementation → checks.**
 
 - [Issues](https://github.com/marcoazzurrini/pi-dyslexia/issues) track questions, deliverables, and completion criteria. Split implementation tasks out when designs are concrete.
-- Research notes go in `docs/research/` as each investigation starts. Record primary sources, findings, limitations, and resulting decisions. Distinguish experimental evidence from style advice and personal preferences.
+- Keep research in two documents: [speech](docs/research/speech.md) and [writing](docs/research/writing.md). Record decisions, important results, sources, and limitations there. Keep runnable measurement tools in `scripts/benchmarks/`; do not add research indexes, archives, or raw-result collections.
 - Evaluate comprehension, task success, and comfort—not just word count or reading speed.
 
 Keep original messages and executable text intact. Display and speech preferences should be optional and reversible.

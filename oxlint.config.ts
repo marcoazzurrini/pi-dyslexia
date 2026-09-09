@@ -5,5 +5,11 @@ import core from "ultracite/oxlint/core";
 export default defineConfig({
   env: { node: true },
   extends: [core, antiSlop],
-  ignorePatterns: [...(core.ignorePatterns ?? []), "docs/**", "**/*.py"],
+  // Benchmark relocation does not change the existing research-tooling scope.
+  ignorePatterns: [
+    ...(core.ignorePatterns ?? []),
+    "docs/**",
+    "scripts/benchmarks/**",
+    "**/*.py",
+  ],
 });

@@ -2,3 +2,5 @@
 node_modules/
 __pycache__/
 *.pyc
+extensions/speech/native/.build/
+extensions/speech/native/.swiftpm/

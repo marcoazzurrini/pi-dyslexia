@@ -1,14 +1,14 @@
 import type { ChildProcess, ChildProcessByStdio } from "node:child_process";
 import { execFile, spawn } from "node:child_process";
 import { mkdtemp, rm, stat } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { ignoreRejection } from "./async.ts";
+import { setupPath, workerCommand, workerEnvironment } from "./runtime.ts";
 
 export interface VoiceSettings {
   speed: number;
@@ -18,18 +18,7 @@ type WorkerProcess = ChildProcessByStdio<Writable, Readable, null>;
 interface StartupTimeout {
   handle?: ReturnType<typeof setTimeout>;
 }
-export const python = path.join(
-  homedir(),
-  ".cache/pi-dyslexia/venv/bin/python"
-);
-const workerPath = fileURLToPath(new URL("worker.py", import.meta.url));
 const cacheLimit = 32 * 1024 * 1024;
-const offlineEnvironment = () => ({
-  ...process.env,
-  HF_HUB_DISABLE_TELEMETRY: "1",
-  HF_HUB_OFFLINE: "1",
-  TRANSFORMERS_OFFLINE: "1",
-});
 
 export class LocalAudio {
   private directory?: Promise<string>;
@@ -51,17 +40,16 @@ export class LocalAudio {
   private counter = 0;
   private cache = new Map<string, { bytes: number; path: string }>();
   private closed = false;
-  private readonly executable = python;
-  private readonly setupPath = fileURLToPath(
-    new URL("setup.sh", import.meta.url)
-  );
 
   async install(signal: AbortSignal): Promise<void> {
     signal.throwIfAborted();
+    if (this.closed) {
+      throw new Error("Speech is closed.");
+    }
     const completion: PromiseWithResolvers<void> = Promise.withResolvers();
     let timedOut = false;
     let output = "";
-    const child = spawn("sh", [this.setupPath], {
+    const child = spawn("sh", [setupPath], {
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -113,13 +101,23 @@ export class LocalAudio {
   }
 
   async checkReady(signal?: AbortSignal): Promise<boolean> {
+    if (this.closed) {
+      return false;
+    }
     try {
-      await promisify(execFile)(this.executable, [workerPath, "--check"], {
-        env: offlineEnvironment(),
-        signal,
-        timeout: 30_000,
-      });
-      return true;
+      const command = workerCommand("--check");
+      const { stdout } = await promisify(execFile)(
+        command.executable,
+        command.args,
+        {
+          env: workerEnvironment(),
+          signal,
+          timeout: 30_000,
+        }
+      );
+      // An older experimental executable must be rebuilt before it is used.
+      const status = JSON.parse(stdout);
+      return status.ready === true && status.albert === "cpuAndGPU";
     } catch {
       return false;
     }
@@ -135,8 +133,9 @@ export class LocalAudio {
   }
 
   private startWorker(directory: string): WorkerProcess {
-    const child = spawn(this.executable, ["-u", workerPath, directory], {
-      env: offlineEnvironment(),
+    const command = workerCommand(directory);
+    const child = spawn(command.executable, command.args, {
+      env: workerEnvironment(),
       stdio: ["pipe", "pipe", "ignore"],
     });
     this.track(child);
@@ -167,7 +166,7 @@ export class LocalAudio {
           pending.reject(
             new Error(`Speech synthesis failed (${response.error}).`)
           );
-        } else if (response.seconds > 0) {
+        } else if (Number.isFinite(response.seconds) && response.seconds > 0) {
           pending.resolve();
         } else {
           pending.reject(new Error("Speech worker returned empty audio."));
@@ -232,7 +231,8 @@ export class LocalAudio {
   ): Promise<void> {
     const completion: PromiseWithResolvers<void> = Promise.withResolvers();
     const cancel = (error: Error) => {
-      // MLX has no per-request interrupt. Kill only our worker, then reload lazily.
+      // Core ML prediction may not stop promptly. Kill only our synthesis
+      // worker; keep playback alive and reload lazily.
       if (this.worker === child) {
         this.worker = undefined;
         this.pending = undefined;
@@ -343,7 +343,9 @@ export class LocalAudio {
     if (this.playerReady) {
       return this.playerReady;
     }
-    const child = spawn(this.executable, ["-u", workerPath, "--player"], {
+    const command = workerCommand("--player");
+    const child = spawn(command.executable, command.args, {
+      env: workerEnvironment(),
       stdio: ["pipe", "pipe", "ignore"],
     });
     this.track(child);

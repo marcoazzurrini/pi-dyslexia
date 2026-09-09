@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import {
   access,
   mkdtemp,
@@ -12,18 +11,19 @@ import { tmpdir } from "node:os";
 import nodePath from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 
-import { LocalAudio, python } from "../extensions/speech/audio.ts";
+import { LocalAudio } from "../extensions/speech/audio.ts";
+
+const skipNative =
+  process.env.PI_DYSLEXIA_AUDIO_TEST !== "1" ||
+  process.platform !== "darwin" ||
+  process.arch !== "arm64";
 
 // Opt-in integration check: uses downloaded Kokoro, but plays only synthetic silence.
 test(
   "local worker, cache, cancellation, silent player pause/resume and cleanup",
   {
-    skip:
-      process.env.PI_DYSLEXIA_AUDIO_TEST !== "1" ||
-      process.platform !== "darwin",
+    skip: skipNative,
   },
   async () => {
     const audio = new LocalAudio();
@@ -32,24 +32,10 @@ test(
     try {
       const controller = new AbortController();
       const settings = { speed: 1, voice: "af_heart" };
-      await promisify(execFile)(
-        python,
-        [
-          "-c",
-          `
-import numpy as np
-from worker import trim_initial_silence
-pcm = np.array([0] * 1000 + [1, 0, -1, 32767], dtype='<i2')
-trimmed = trim_initial_silence(pcm)
-assert np.array_equal(trimmed, pcm[520:]), 'retain 20 ms before even the quietest sample'
-assert np.array_equal(trim_initial_silence(pcm[900:]), pcm[900:]), 'never cut nonzero speech'
-assert np.array_equal(trim_initial_silence(np.zeros(1000, dtype='<i2')), np.zeros(1000, dtype='<i2'))
-`,
-        ],
-        {
-          cwd: fileURLToPath(new URL("../extensions/speech", import.meta.url)),
-          timeout: 10_000,
-        }
+      assert.equal(
+        await audio.checkReady(),
+        true,
+        "install the current native runtime first"
       );
       const path = await audio.generate(
         "Ready to read. Do not delete the backup.",
@@ -72,6 +58,28 @@ assert np.array_equal(trim_initial_silence(np.zeros(1000, dtype='<i2')), np.zero
           controller.signal
         ),
         path
+      );
+      const healthyWorker = audio["worker"];
+      await assert.rejects(
+        audio.generate(
+          "Reject invalid settings.",
+          { speed: 1, voice: "missing_voice" },
+          controller.signal
+        ),
+        /Speech synthesis failed/u
+      );
+      await assert.rejects(
+        audio.generate(
+          "Reject invalid settings.",
+          { speed: 0, voice: "af_heart" },
+          controller.signal
+        ),
+        /Speech synthesis failed/u
+      );
+      assert.equal(
+        audio["worker"],
+        healthyWorker,
+        "request errors do not discard the warm model"
       );
       const cancelled = new AbortController();
       const pending = audio.generate(
@@ -192,5 +200,74 @@ assert np.array_equal(trim_initial_silence(np.zeros(1000, dtype='<i2')), np.zero
     }
     assert.ok(directory);
     await assert.rejects(access(directory), { code: "ENOENT" });
+  }
+);
+
+test(
+  "native ALBERT routing supports every preset, speed boundaries, and long input without playback",
+  {
+    skip: skipNative,
+  },
+  async () => {
+    const audio = new LocalAudio();
+    const { signal } = new AbortController();
+    try {
+      assert.equal(await audio.checkReady(), true);
+      for await (const voice of [
+        "af_heart",
+        "af_bella",
+        "am_michael",
+        "bf_emma",
+        "bm_george",
+      ]) {
+        for await (const speed of [0.5, 1, 1.5, 2]) {
+          const filename = await audio.generate(
+            "Warning: do not delete the backup. Port 8080 returned ECONNREFUSED.",
+            { speed, voice },
+            signal
+          );
+          const wav = await readFile(filename);
+          assert.equal(wav.toString("ascii", 0, 4), "RIFF");
+          assert.equal(wav.readUInt32LE(24), 24_000);
+          assert.equal(wav.readUInt32LE(40), wav.length - 44);
+          assert.ok(wav.length > 44);
+        }
+      }
+      const warmWorker = audio["worker"];
+      const text =
+        "Before retrying the request, verify that the backup is complete and keep the original file. ".repeat(
+          10
+        );
+      const filename = await audio.generate(
+        text,
+        { speed: 0.5, voice: "af_heart" },
+        signal
+      );
+      const metadata = await stat(filename);
+      assert.ok(metadata.size > 44);
+      assert.equal(
+        audio["worker"],
+        warmWorker,
+        "voice changes and long-input retries retain the model"
+      );
+      for await (const speed of [0.49, 2.01]) {
+        await assert.rejects(
+          audio.generate(
+            "Reject invalid speed.",
+            { speed, voice: "af_heart" },
+            signal
+          ),
+          /Speech synthesis failed/u
+        );
+      }
+      assert.equal(audio["worker"], warmWorker);
+      assert.equal(
+        audio["player"],
+        undefined,
+        "synthesis checks never open an output device"
+      );
+    } finally {
+      await audio.close();
+    }
   }
 );

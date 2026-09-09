@@ -15,6 +15,7 @@ import { ignoreRejection } from "./async.ts";
 import { LocalAudio } from "./audio.ts";
 import type { Answer } from "./player.ts";
 import { SpeechPlayer } from "./player.ts";
+import { setupDescription } from "./runtime.ts";
 
 export const voices = [
   "af_heart",
@@ -305,7 +306,7 @@ export default function speech(pi: ExtensionAPI): void {
       try {
         const consent = await context.ui.confirm(
           "Set up read-aloud?",
-          "This downloads and runs uv from astral.sh if needed, and installs Python 3.12, speech dependencies, the English dictionary, and the Kokoro voice model.\nInternet access and disk space are required. Setup may take several minutes. No administrator access or shell profile changes.\nAfter setup, narration stays local. No audio plays during setup.",
+          setupDescription,
           { signal: controller.signal }
         );
         if (!consent || controller.signal.aborted || ctx !== context) {
