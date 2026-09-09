@@ -28,8 +28,8 @@
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "hooks:install": "lefthook install",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
-    "test": "node --experimental-strip-types --test test/*.test.mjs",
-    "test:speech-local": "python3 test/speech-worker.py && PI_DYSLEXIA_AUDIO_TEST=1 node --experimental-strip-types --test test/speech-local.test.mjs",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test:speech-local": "python3 test/speech-worker.py && PI_DYSLEXIA_AUDIO_TEST=1 node --experimental-strip-types --test test/speech-local.test.ts",
     "setup:speech": "sh extensions/speech/setup.sh",
     "preversion": "npm test"
   },

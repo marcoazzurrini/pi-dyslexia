@@ -3,33 +3,42 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 import test from "node:test";
+import { setImmediate as tick } from "node:timers/promises";
+
+import type { ExtensionEvent } from "@earendil-works/pi-coding-agent";
 
 import { LocalAudio } from "../extensions/speech/audio.ts";
+import type { VoiceSettings } from "../extensions/speech/audio.ts";
+import type * as SpeechModule from "../extensions/speech/index.ts";
 import { SpeechPlayer } from "../extensions/speech/player.ts";
 import { speechChunks } from "../extensions/speech/text.ts";
-import { noop, restoreEnvironment, tick, until } from "./helpers.mjs";
+import {
+  assistantEntry,
+  extensionHarness,
+  last,
+  noop,
+  restoreEnvironment,
+  testContext,
+  until,
+  widget,
+} from "./helpers.ts";
+import type { Notices, Widgets } from "./helpers.ts";
 
-const assistantEntry = (
-  id,
-  stopReason = "stop",
-  text = "A completed answer."
-) => ({
-  id,
-  message: {
-    content: [
-      { thinking: "secret", type: "thinking" },
-      { text, type: "text" },
-    ],
-    role: "assistant",
-    stopReason,
-  },
-  type: "message",
-});
+type Generation = PromiseWithResolvers<string> & {
+  settings: VoiceSettings;
+  signal: AbortSignal;
+  text: string;
+};
+type Playback = PromiseWithResolvers<void> & {
+  path: string;
+  paused: boolean;
+  signal: AbortSignal;
+};
 
 const fakeAudio = ({ deferGeneration = false } = {}) => {
-  const generated = [];
-  const played = [];
-  const warmed = [];
+  const generated: Generation[] = [];
+  const played: Playback[] = [];
+  const warmed: { settings: VoiceSettings; signal: AbortSignal }[] = [];
   return {
     checkReady() {
       return Promise.resolve(true);
@@ -39,14 +48,14 @@ const fakeAudio = ({ deferGeneration = false } = {}) => {
       return Promise.resolve();
     },
     closed: false,
-    generate(text, settings, signal) {
-      const deferred = Promise.withResolvers();
+    generate(text: string, settings: VoiceSettings, signal: AbortSignal) {
+      const deferred = Promise.withResolvers<string>();
       generated.push({ settings, signal, text, ...deferred });
       return deferGeneration ? deferred.promise : Promise.resolve(text);
     },
     generated,
-    play(path, signal) {
-      const deferred = Promise.withResolvers();
+    play(path: string, signal: AbortSignal) {
+      const deferred: PromiseWithResolvers<void> = Promise.withResolvers();
       const entry = { path, paused: false, signal, ...deferred };
       played.push(entry);
       signal.addEventListener("abort", () => deferred.reject(signal.reason), {
@@ -60,11 +69,11 @@ const fakeAudio = ({ deferGeneration = false } = {}) => {
         resume: () => {
           entry.paused = false;
         },
-        started: Promise.resolve(),
+        started: Promise.resolve(0),
       };
     },
     played,
-    warm(settings, signal) {
+    warm(settings: VoiceSettings, signal: AbortSignal) {
       warmed.push({ settings, signal });
       return Promise.resolve();
     },
@@ -120,7 +129,7 @@ test("speech rendering preserves meaning and announces omissions", () => {
 
 test("player prefetches one chunk, pauses without restarting, replays, and stops", async () => {
   const audio = fakeAudio();
-  const errors = [];
+  const errors: string[] = [];
   const player = new SpeechPlayer(audio, noop, (error) => errors.push(error));
   player.start({
     id: "a",
@@ -138,7 +147,7 @@ test("player prefetches one chunk, pauses without restarting, replays, and stops
   audio.played[0].resolve();
   await until(() => audio.played.length === 2);
   assert.equal(
-    audio.generated.at(-1).settings.speed,
+    last(audio.generated).settings.speed,
     1.5,
     "regenerate the buffered sentence at the new speed"
   );
@@ -146,9 +155,10 @@ test("player prefetches one chunk, pauses without restarting, replays, and stops
   await player.finished;
   assert.equal(player.state, "stopped");
   assert.equal(audio.played[1].signal.aborted, true);
+  assert.ok(player.answer);
   player.start(player.answer);
   await until(() => audio.played.length === 3);
-  assert.equal(audio.played.at(-1).path, "First sentence.");
+  assert.equal(last(audio.played).path, "First sentence.");
   await player.close();
   assert.equal(audio.closed, true);
   assert.deepEqual(errors, []);
@@ -180,7 +190,7 @@ test("late synthesis after stop/replay never plays stale audio; pause during loa
 
 test("synthesis failure remains recoverable without unhandled prefetch rejection", async () => {
   const audio = fakeAudio({ deferGeneration: true });
-  const errors = [];
+  const errors: string[] = [];
   const player = new SpeechPlayer(audio, noop, (error) => errors.push(error));
   player.start({ id: "a", text: "First. Second." });
   await until(() => audio.generated.length === 1);
@@ -274,7 +284,7 @@ test("silent preparation transfers in-flight audio, validates final text/setting
 
 test("playing status waits for the first buffer and pause during device startup is preserved", async () => {
   const audio = fakeAudio();
-  const firstBuffer = Promise.withResolvers();
+  const firstBuffer = Promise.withResolvers<number>();
   const original = audio.play;
   audio.play = (...args) => ({
     ...original(...args),
@@ -285,7 +295,7 @@ test("playing status waits for the first buffer and pause during device startup 
   await until(() => audio.played.length === 1);
   assert.equal(player.state, "loading");
   player.toggle();
-  firstBuffer.resolve();
+  firstBuffer.resolve(0);
   await tick();
   assert.equal(player.state, "paused");
   player.toggle();
@@ -294,15 +304,15 @@ test("playing status waits for the first buffer and pause during device startup 
 });
 
 for (const agentDir of [".pi/agent", "custom-agent"]) {
-  test(`extension gates autoplay and saves settings under ${agentDir}`, async () => {
+  test(`extension gates autoplay and saves settings under ${agentDir}`, async (t) => {
     const home = await mkdtemp(nodePath.join(tmpdir(), "pi-speech-test-"));
     const originalEnv = {
       HOME: process.env.HOME,
       PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR,
     };
-    let answerFromEntry;
-    let parseSettings;
-    let speech;
+    let answerFromEntry: typeof SpeechModule.answerFromEntry;
+    let parseSettings: typeof SpeechModule.parseSettings;
+    let speech: typeof SpeechModule.default;
     try {
       process.env.HOME = home;
       delete process.env.PI_CODING_AGENT_DIR;
@@ -330,48 +340,52 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
     });
     await writeFile(legacyConfig, JSON.stringify(legacySettings));
     const audio = fakeAudio();
-    const originals = {};
-    for (const method of ["checkReady", "warm", "generate", "play", "close"]) {
-      originals[method] = LocalAudio.prototype[method];
-      LocalAudio.prototype[method] = audio[method].bind(audio);
+    for (const method of [
+      "checkReady",
+      "warm",
+      "generate",
+      "play",
+      "close",
+    ] as const) {
+      t.mock.method(LocalAudio.prototype, method, audio[method].bind(audio));
     }
-    const handlers = new Map();
-    const commands = new Map();
-    const shortcuts = new Map();
-    const notices = [];
-    const widgets = [];
+    const { api, handlers, commands, shortcuts } = extensionHarness();
+    const notices: Notices = [];
+    const widgets: Widgets = [];
     let branch = [assistantEntry("old")];
     let idle = true;
-    const context = {
+    const context = testContext({
       hasUI: true,
       isIdle: () => idle,
       mode: "tui",
       sessionManager: {
         getBranch: () => branch,
-        getLeafId: () => branch.at(-1)?.id,
+        getLeafId: () => branch.at(-1)?.id ?? null,
       },
       ui: {
         notify: (...args) => notices.push(args),
         select: (_title, values) => Promise.resolve(values[0]),
-        setWidget: (...args) => widgets.push(args),
+        setWidget: (...args) => {
+          widgets.push(args);
+        },
       },
-    };
+    });
     try {
-      speech({
-        on: (name, handler) => handlers.set(name, handler),
-        registerCommand: (name, command) => commands.set(name, command),
-        registerShortcut: (key, shortcut) => shortcuts.set(key, shortcut),
-      });
-      const event = (name, data = {}) => handlers.get(name)?.(data, context);
-      const command = (args) => commands.get("speech").handler(args, context);
+      speech(api);
+      const event = <K extends ExtensionEvent["type"]>(
+        name: K,
+        data: Partial<Omit<Extract<ExtensionEvent, { type: K }>, "type">> = {}
+      ) => handlers.get(name)(data, context);
+      const command = (args: string) =>
+        commands.get("speech").handler(args, context);
       await event("session_start");
       assert.match(
-        widgets.at(-1)[1]().render(200)[0],
+        widget(widgets).render(200)[0],
         /auto off/u,
         "read the legacy preference when the new file is missing"
       );
       await command("status");
-      assert.ok(notices.at(-1)[0].endsWith(`Settings: ${config}`));
+      assert.ok(last(notices)[0].endsWith(`Settings: ${config}`));
       await command("auto on");
       assert.equal(JSON.parse(await readFile(config, "utf-8")).auto, true);
       assert.deepEqual(
@@ -382,7 +396,7 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
       await event("session_shutdown");
       await event("session_start");
       assert.match(
-        widgets.at(-1)[1]().render(200)[0],
+        widget(widgets).render(200)[0],
         /auto on/u,
         "new settings take precedence over legacy settings"
       );
@@ -426,9 +440,19 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
       await event("agent_settled");
       assert.equal(audio.played.length, 1, "no duplicate playback");
       assert.deepEqual(
-        widgets
-          .at(-1)[1]()
-          .handleMouse({ button: "left", type: "click", x: 2, y: 1 }),
+        widget(widgets).handleMouse?.({
+          alt: false,
+          button: "left",
+          ctrl: false,
+          height: 3,
+          screenX: 2,
+          screenY: 1,
+          shift: false,
+          type: "click",
+          width: 200,
+          x: 2,
+          y: 1,
+        }),
         { handled: true }
       );
       assert.equal(audio.played[0].paused, true);
@@ -444,7 +468,12 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
       await until(() => audio.played.length === 2);
       await event("input", { source: "interactive" });
       assert.equal(audio.played[1].signal.aborted, true);
-      for await (const reason of ["aborted", "error", "length", "pending"]) {
+      for await (const reason of [
+        "aborted",
+        "error",
+        "length",
+        "pending",
+      ] as const) {
         await event("agent_start");
         branch.push(assistantEntry(reason, reason));
         await event("agent_settled");
@@ -464,7 +493,7 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
         message: { ...suppressed.message, stopReason: "pending" },
       });
       await tick();
-      const speculative = audio.generated.at(-1);
+      const speculative = last(audio.generated);
       await command("stop");
       assert.equal(
         speculative.signal.aborted,
@@ -485,12 +514,10 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
         2,
         "stop suppresses the currently running answer"
       );
-      assert.ok(
-        commands
-          .get("speech")
-          .getArgumentCompletions("speed ")
-          .some((item) => item.value === "speed 1.5")
-      );
+      const completions = await commands
+        .get("speech")
+        .getArgumentCompletions?.("speed ");
+      assert.ok(completions?.some((item) => item.value === "speed 1.5"));
       await command("speed 1.5");
       assert.equal(JSON.parse(await readFile(config, "utf-8")).speed, 1.5);
       await command("speed 1.25");
@@ -516,7 +543,7 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
         "include none",
       ]) {
         await command(invalid);
-        assert.equal(notices.at(-1)[1], "error", invalid);
+        assert.equal(last(notices)[1], "error", invalid);
         assert.deepEqual(JSON.parse(await readFile(config, "utf-8")), saved);
       }
       assert.throws(() =>
@@ -530,7 +557,9 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
           ...assistantEntry("call"),
           message: {
             ...assistantEntry("call").message,
-            content: [{ type: "toolCall" }],
+            content: [
+              { arguments: {}, id: "call", name: "test", type: "toolCall" },
+            ],
           },
         }),
         undefined
@@ -539,11 +568,11 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
       await event("session_tree");
       await command("");
       await until(() => audio.played.length === 3);
-      assert.equal(audio.played.at(-1).path, "Another branch.");
-      const component = widgets.at(-1)[1]();
+      assert.equal(last(audio.played).path, "Another branch.");
+      const component = widget(widgets);
       assert.ok(component.render(12).every((line) => line.length <= 12));
       await shortcuts.get("ctrl+alt+x").handler(context);
-      assert.equal(audio.played.at(-1).signal.aborted, true);
+      assert.equal(last(audio.played).signal.aborted, true);
       await event("session_shutdown");
       assert.equal(audio.closed, true);
       await event("session_start");
@@ -576,7 +605,7 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
       );
       await writeFile(config, "{bad json");
       await event("session_start");
-      assert.equal(notices.at(-1)[1], "error");
+      assert.equal(last(notices)[1], "error");
       await event("agent_start");
       branch.push(assistantEntry("bad-settings-manual"));
       await event("agent_settled");
@@ -589,9 +618,9 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
       await rm(config);
       await mkdir(config);
       await event("session_start");
-      assert.equal(notices.at(-1)[1], "error");
+      assert.equal(last(notices)[1], "error");
       assert.match(
-        widgets.at(-1)[1]().render(200)[0],
+        widget(widgets).render(200)[0],
         /auto off/u,
         "unreadable settings must not fall back to legacy settings"
       );
@@ -599,23 +628,24 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
       await rm(config, { recursive: true });
       await writeFile(legacyConfig, "{bad json");
       await event("session_start");
-      assert.equal(notices.at(-1)[1], "error");
+      assert.equal(last(notices)[1], "error");
       assert.match(
-        widgets.at(-1)[1]().render(200)[0],
+        widget(widgets).render(200)[0],
         /auto off/u,
         "invalid legacy settings also use manual defaults"
       );
       await event("session_shutdown");
-      for await (const mode of ["rpc", "print", "json"]) {
-        await handlers.get("session_start")({}, { mode });
-        await handlers.get("agent_start")({}, { mode });
-        await handlers.get("agent_settled")({}, { mode });
-        await commands.get("speech").handler("", { mode });
+      for await (const mode of ["rpc", "print", "json"] as const) {
+        const headless = testContext({ mode });
+        await handlers.get("session_start")({}, headless);
+        await handlers.get("agent_start")({}, headless);
+        await handlers.get("agent_settled")({}, headless);
+        await commands.get("speech").handler("", headless);
       }
       assert.equal(audio.played.length, 4);
     } finally {
-      await handlers.get("session_shutdown")?.();
-      Object.assign(LocalAudio.prototype, originals);
+      await handlers.get("session_shutdown")({}, context);
+      t.mock.restoreAll();
       await rm(home, { force: true, recursive: true });
     }
   });

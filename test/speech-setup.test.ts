@@ -11,23 +11,37 @@ import {
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 import test from "node:test";
+import { setImmediate as tick } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
+import type { ExtensionEvent } from "@earendil-works/pi-coding-agent";
+
 import { LocalAudio } from "../extensions/speech/audio.ts";
-import { noop, restoreEnvironment, tick, until } from "./helpers.mjs";
+import type * as SpeechModule from "../extensions/speech/index.ts";
+import {
+  assistantEntry,
+  extensionHarness,
+  last,
+  noop,
+  restoreEnvironment,
+  testContext,
+  until,
+  widget,
+} from "./helpers.ts";
+import type { AssistantEntry, Notices, Widgets } from "./helpers.ts";
 
 test(
   "first-run setup is optional, remembered, consented, retryable, and gates every playback path",
   {
     skip: process.platform !== "darwin" || process.arch !== "arm64",
   },
-  async () => {
+  async (t) => {
     const home = await mkdtemp(nodePath.join(tmpdir(), "pi-speech-setup-"));
     const env = {
       HOME: process.env.HOME,
       PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR,
     };
-    let speech;
+    let speech: typeof SpeechModule.default;
     try {
       process.env.HOME = home;
       delete process.env.PI_CODING_AGENT_DIR;
@@ -52,9 +66,8 @@ test(
     let confirmations = 0;
     let generated = 0;
     let prompts = 0;
-    let pendingInstall;
-    const originals = {};
-    const executions = [];
+    let pendingInstall: PromiseWithResolvers<void> | undefined;
+    const executions: { signal: AbortSignal }[] = [];
     const fake = {
       checkReady() {
         checks += 1;
@@ -68,13 +81,14 @@ test(
         }
         return Promise.resolve("test.wav");
       },
-      install(signal) {
+      install(signal: AbortSignal) {
         executions.push({ signal });
         if (pendingInstall) {
-          signal.addEventListener("abort", () => pendingInstall.resolve(), {
+          const pending = pendingInstall;
+          signal.addEventListener("abort", () => pending.resolve(), {
             once: true,
           });
-          return pendingInstall.promise;
+          return pending.promise;
         }
         if (result.code !== 0) {
           return Promise.reject(new Error(result.stderr));
@@ -87,28 +101,35 @@ test(
           done: Promise.resolve(),
           pause: noop,
           resume: noop,
-          started: Promise.resolve(),
+          started: Promise.resolve(0),
         };
       },
       warm: () => Promise.resolve(),
-    };
-    for (const [name, method] of Object.entries(fake)) {
-      originals[name] = LocalAudio.prototype[name];
-      LocalAudio.prototype[name] = method;
+    } satisfies Pick<
+      LocalAudio,
+      "checkReady" | "close" | "generate" | "install" | "play" | "warm"
+    >;
+    for (const name of [
+      "checkReady",
+      "close",
+      "generate",
+      "install",
+      "play",
+      "warm",
+    ] as const) {
+      t.mock.method(LocalAudio.prototype, name, fake[name]);
     }
-    const handlers = new Map();
-    const commands = new Map();
-    const shortcuts = new Map();
-    const notices = [];
-    const widgets = [];
-    const branch = [];
-    const context = {
+    const { api, handlers, commands, shortcuts } = extensionHarness();
+    const notices: Notices = [];
+    const widgets: Widgets = [];
+    const branch: AssistantEntry[] = [];
+    const context = testContext({
       hasUI: true,
       isIdle: () => true,
       mode: "tui",
       sessionManager: {
         getBranch: () => branch,
-        getLeafId: () => branch.at(-1)?.id,
+        getLeafId: () => branch.at(-1)?.id ?? null,
       },
       ui: {
         confirm(title, message) {
@@ -135,28 +156,22 @@ test(
           assert.deepEqual(options, ["Set up read-aloud", "Not now"]);
           return Promise.resolve(choice);
         },
-        setWidget: (...args) => widgets.push(args),
+        setWidget: (...args) => {
+          widgets.push(args);
+        },
       },
-    };
-    speech({
-      on: (name, handler) => handlers.set(name, handler),
-      registerCommand: (name, command) => commands.set(name, command),
-      registerShortcut: (name, shortcut) => shortcuts.set(name, shortcut),
     });
-    const event = (name, data = {}) => handlers.get(name)?.(data, context);
-    const command = (args) => commands.get("speech").handler(args, context);
+    speech(api);
+    const event = <K extends ExtensionEvent["type"]>(
+      name: K,
+      data: Partial<Omit<Extract<ExtensionEvent, { type: K }>, "type">> = {}
+    ) => handlers.get(name)(data, context);
+    const command = (args: string) =>
+      commands.get("speech").handler(args, context);
     const answer = async () => {
       await event("input", { source: "interactive" });
       await event("agent_start");
-      branch.push({
-        id: String(branch.length),
-        message: {
-          content: [{ text: "A completed answer.", type: "text" }],
-          role: "assistant",
-          stopReason: "stop",
-        },
-        type: "message",
-      });
+      branch.push(assistantEntry(String(branch.length)));
       await event("agent_settled");
       await tick();
     };
@@ -167,7 +182,7 @@ test(
       assert.equal(confirmations, 0);
       assert.equal(checks, 1);
       assert.match(
-        widgets.at(-1)[1]().render(200).join(" "),
+        widget(widgets).render(200).join(" "),
         /setup needed.*auto inactive.*\/speech setup/u
       );
       assert.equal(
@@ -195,20 +210,18 @@ test(
         "previous",
       ]) {
         await command(action);
-        assert.match(notices.at(-1)[0], /\/speech setup/u);
-        assert.equal(notices.at(-1)[1], "info");
+        assert.match(last(notices)[0], /\/speech setup/u);
+        assert.equal(last(notices)[1], "info");
       }
       await shortcuts.get("ctrl+alt+s").handler(context);
       assert.equal(generated, 0);
       await event("session_shutdown");
       await event("session_start");
       assert.equal(prompts, 1, "Not now survives reopening Pi");
-      assert.ok(
-        commands
-          .get("speech")
-          .getArgumentCompletions("set")
-          .some((item) => item.value === "setup")
-      );
+      const completions = await commands
+        .get("speech")
+        .getArgumentCompletions?.("set");
+      assert.ok(completions?.some((item) => item.value === "setup"));
       await command("setup");
       assert.equal(confirmations, 1);
       assert.equal(executions.length, 0, "no installation without consent");
@@ -216,15 +229,15 @@ test(
       await command("setup");
       assert.equal(executions.length, 1);
       assert.match(
-        notices.at(-1)[0],
+        last(notices)[0],
         /did not finish.*Text responses still work[\s\S]*Network unavailable[\s\S]*\/speech setup/u
       );
-      assert.equal(notices.at(-1)[1], "error");
+      assert.equal(last(notices)[1], "error");
       await answer();
       assert.equal(generated, 0);
       result = { code: 0, killed: false, stderr: "", stdout: "Complete." };
       await command("setup");
-      assert.match(notices.at(-1)[0], /did not pass the readiness check/u);
+      assert.match(last(notices)[0], /did not pass the readiness check/u);
       await answer();
       assert.equal(
         generated,
@@ -235,7 +248,7 @@ test(
       installWorks = true;
       await command("setup");
       assert.match(
-        notices.at(-1)[0],
+        last(notices)[0],
         /Read-aloud is ready.*Automatic narration is off/u
       );
       assert.equal(generated, 0, "setup never plays audio or old answers");
@@ -268,10 +281,10 @@ test(
         installs,
         "only one installer per session"
       );
-      assert.match(notices.at(-1)[0], /already running/u);
+      assert.match(last(notices)[0], /already running/u);
       await event("session_shutdown");
       await running;
-      assert.equal(executions.at(-1).signal.aborted, true);
+      assert.equal(last(executions).signal.aborted, true);
       assert.equal(
         notices.filter(([, type]) => type === "error").length,
         errors,
@@ -290,7 +303,7 @@ test(
         installs + 1,
         "first-launch setup runs the same consented installer"
       );
-      assert.match(notices.at(-1)[0], /Read-aloud is ready/u);
+      assert.match(last(notices)[0], /Read-aloud is ready/u);
       assert.equal(generated, 2);
       await event("session_shutdown");
       const before = {
@@ -299,9 +312,10 @@ test(
         executions: executions.length,
         prompts,
       };
-      for await (const mode of ["rpc", "print", "json"]) {
-        await handlers.get("session_start")({}, { mode });
-        await commands.get("speech").handler("setup", { mode });
+      for await (const mode of ["rpc", "print", "json"] as const) {
+        const headless = testContext({ mode });
+        await handlers.get("session_start")({}, headless);
+        await commands.get("speech").handler("setup", headless);
       }
       assert.deepEqual(
         { checks, confirmations, executions: executions.length, prompts },
@@ -309,7 +323,7 @@ test(
       );
     } finally {
       await event("session_shutdown");
-      Object.assign(LocalAudio.prototype, originals);
+      t.mock.restoreAll();
       await rm(home, { force: true, recursive: true });
     }
   }
@@ -322,11 +336,11 @@ test("installer bootstraps missing prerequisites without real downloads and canc
     HOME: process.env.HOME,
     PATH: process.env.PATH,
   };
-  const script = (name, text) =>
+  const script = (name: string, text: string) =>
     writeFile(nodePath.join(home, name), `#!/bin/sh\nset -eu\n${text}\n`, {
       mode: 0o700,
     });
-  let audio;
+  let audio: LocalAudio | undefined;
   try {
     await mkdir(nodePath.join(home, "bin"));
     for await (const [name, path] of [
@@ -334,7 +348,7 @@ test("installer bootstraps missing prerequisites without real downloads and canc
       ["rm", "/bin/rm"],
       ["dirname", "/usr/bin/dirname"],
       ["mktemp", "/usr/bin/mktemp"],
-    ]) {
+    ] as const) {
       await symlink(path, nodePath.join(home, "bin", name));
     }
     await script(
@@ -372,9 +386,8 @@ test("installer bootstraps missing prerequisites without real downloads and canc
     process.env.HOME = home;
     process.env.PATH = nodePath.join(home, "bin");
     delete process.env.FAIL_CHECK;
-    const { LocalAudio: IsolatedAudio } = await import(
-      pathToFileURL(nodePath.join(home, "audio.ts"))
-    );
+    const { LocalAudio: IsolatedAudio }: { LocalAudio: typeof LocalAudio } =
+      await import(pathToFileURL(nodePath.join(home, "audio.ts")).href);
     audio = new IsolatedAudio();
     assert.equal(
       await audio.checkReady(),
@@ -392,12 +405,12 @@ test("installer bootstraps missing prerequisites without real downloads and canc
     await audio.install(new AbortController().signal);
     log = await readFile(nodePath.join(home, "log"), "utf-8");
     assert.equal(
-      log.match(/bootstrap/gu).length,
+      log.match(/bootstrap/gu)?.length,
       1,
       "reuse the private uv installation"
     );
     assert.equal(
-      log.match(/uv:venv/gu).length,
+      log.match(/uv:venv/gu)?.length,
       1,
       "reuse the Python environment"
     );
@@ -417,14 +430,18 @@ test("installer bootstraps missing prerequisites without real downloads and canc
     const running = assert.rejects(audio.install(controller.signal));
     let pid;
     try {
-      pid = await until(
+      pid = await until<number | false>(
         async () => {
           try {
             return Number(
               await readFile(nodePath.join(home, "child.pid"), "utf-8")
             );
           } catch (error) {
-            if (error.code === "ENOENT") {
+            if (
+              error instanceof Error &&
+              "code" in error &&
+              error.code === "ENOENT"
+            ) {
               return false;
             }
             throw error;
@@ -437,14 +454,18 @@ test("installer bootstraps missing prerequisites without real downloads and canc
       controller.abort();
     }
     await running;
-    assert.ok(pid, "the installer started a child process");
+    assert.ok(pid && pid > 0, "the installer started a child process");
     await until(
       () => {
         try {
           process.kill(pid, 0);
           return false;
         } catch (error) {
-          if (error.code === "ESRCH") {
+          if (
+            error instanceof Error &&
+            "code" in error &&
+            error.code === "ESRCH"
+          ) {
             return true;
           }
           throw error;

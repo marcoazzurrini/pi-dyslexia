@@ -28,7 +28,7 @@ test(
   async () => {
     const audio = new LocalAudio();
     const temp = await mkdtemp(nodePath.join(tmpdir(), "pi-speech-silence-"));
-    let directory;
+    let directory: string | undefined;
     try {
       const controller = new AbortController();
       const settings = { speed: 1, voice: "af_heart" };
@@ -84,20 +84,21 @@ assert np.array_equal(trim_initial_silence(np.zeros(1000, dtype='<i2')), np.zero
       cancelled.abort();
       await rejected;
       await audio.warm(settings, controller.signal);
-      const warmedWorker = audio.worker;
+      // Bracket access keeps these white-box checks typed without exposing internals publicly.
+      const warmedWorker = audio["worker"];
       await audio.generate(
         "The worker can restart.",
         settings,
         controller.signal
       );
       assert.equal(
-        audio.worker,
+        audio["worker"],
         warmedWorker,
         "warm-up after cancellation initializes the replacement worker"
       );
       const evicted = nodePath.join(directory, "eviction-check.wav");
       await writeFile(evicted, "old cached audio");
-      audio.cache.set("eviction-check", {
+      audio["cache"].set("eviction-check", {
         bytes: 33 * 1024 * 1024,
         path: evicted,
       });
@@ -123,11 +124,11 @@ assert np.array_equal(trim_initial_silence(np.zeros(1000, dtype='<i2')), np.zero
       silence.writeUInt32LE(silence.length - 44, 40);
       const silentPath = nodePath.join(temp, "silence.wav");
       await writeFile(silentPath, silence);
-      const playerProcess = audio.player;
+      const playerProcess = audio["player"];
       const playback = audio.play(silentPath, controller.signal);
       await playback.started;
       assert.equal(
-        audio.player,
+        audio["player"],
         playerProcess,
         "play uses the pre-opened output stream"
       );
@@ -155,7 +156,7 @@ assert np.array_equal(trim_initial_silence(np.zeros(1000, dtype='<i2')), np.zero
       const resumed = audio.play(silentPath, new AbortController().signal);
       await resumed.started;
       assert.equal(
-        audio.player,
+        audio["player"],
         playerProcess,
         "stop and subsequent chunks keep the same player and stream"
       );
@@ -169,7 +170,7 @@ assert np.array_equal(trim_initial_silence(np.zeros(1000, dtype='<i2')), np.zero
       const recovered = audio.play(silentPath, new AbortController().signal);
       await recovered.started;
       assert.notEqual(
-        audio.player,
+        audio["player"],
         playerProcess,
         "a failed output process is replaced on explicit retry"
       );
@@ -189,6 +190,7 @@ assert np.array_equal(trim_initial_silence(np.zeros(1000, dtype='<i2')), np.zero
       await audio.close();
       await rm(temp, { force: true, recursive: true });
     }
+    assert.ok(directory);
     await assert.rejects(access(directory), { code: "ENOENT" });
   }
 );

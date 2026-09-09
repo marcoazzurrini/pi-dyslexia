@@ -166,9 +166,9 @@ npm run hooks:install
 
 The pre-commit hook runs Oxfmt on staged source and configuration files, stages the formatted results with Lefthook's `stage_fixed`, then runs Oxlint on staged JavaScript and TypeScript and a whole-project TypeScript check. The named jobs run sequentially and stop at the first failure. Lefthook preserves unstaged edits in partially staged files; if they cannot be restored safely, the commit fails. Review the diff before retrying a failed commit. Lint errors and warnings block the commit; lint fixes are never applied silently by the hook.
 
-Typechecking runs when TypeScript, `tsconfig.json`, or dependency manifests are staged. It checks all extension TypeScript and the Oxc configuration files, not only the staged files. `tsconfig.json` enables strict checking without emitting JavaScript; dependency declaration files are skipped. JavaScript tests, research, and non-TypeScript assets are not typechecked. The compiler reads the working tree, subject to Lefthook's handling of partially staged files; it is not an isolated check of the Git index.
+Typechecking runs when TypeScript, `tsconfig.json`, or dependency manifests are staged. It checks all extension TypeScript, TypeScript tests and helpers, and the Oxc configuration files, not only the staged files. `tsconfig.json` enables strict checking without emitting JavaScript; dependency declaration files are skipped. Research and non-TypeScript assets are not typechecked. The compiler reads the working tree, subject to Lefthook's handling of partially staged files; it is not an isolated check of the Git index.
 
-The pre-push hook runs `npm test`.
+The pre-push hook runs `npm test`. Node executes the TypeScript tests using type stripping; it does not check their types. `npm run check` runs both typechecking and tests. During development, run `npm run typecheck -- --watch` in a separate terminal for continuous type feedback while running tests independently.
 
 Oxlint extends Ultracite's core and bundled anti-slop presets without local rule relaxations. Oxfmt uses Ultracite's formatting preset. Documentation, the writing policy, Python, shell scripts, and text assets are outside this lint/format workflow. The generated npm lockfile is also excluded from formatting.
 
@@ -177,7 +177,7 @@ npm run format         # Explicitly format eligible project files
 npm run format:check   # Check formatting without rewriting
 npm run lint           # Check all eligible source files, including tests
 npm run lint:fix       # Explicitly apply available safe lint fixes
-npm run typecheck      # Strict TypeScript check, without emitting files
+npm run typecheck      # Strict TypeScript check of source and tests, without emitting files
 npm run check          # Formatting, lint, types, and unit tests
 ```
 
