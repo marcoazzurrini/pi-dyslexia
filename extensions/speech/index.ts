@@ -190,48 +190,20 @@ export default function speech(pi: ExtensionAPI): void {
     if (!ctx || !player) {
       return;
     }
-    let primary = "Play";
-    if (player.busy) {
-      primary = player.state === "paused" ? "Resume" : "Pause";
-    }
-    const actions = [primary, "Replay", "Stop", "Previous"];
-    const controls = actions.map((name) => `[${name}]`).join(" ");
     const label = `Speech: ${playbackState()} | ${settings.speed}x | auto ${automaticState()}${newer ? " | newer answer: /speech latest" : ""}`;
-    let description = `${controls}  /speech${settings.includeAll ? " | includes code/URLs" : " | skips code/URLs (announced)"}`;
+    const lines = [label];
     if (setupTask) {
-      description = "Downloading and installing. Text responses still work.";
+      lines.push("Downloading and installing. Text responses still work.");
     } else if (!ready) {
-      description =
-        "Text responses work. Use /speech setup to enable read-aloud.";
+      lines.push(
+        "Text responses work. Use /speech setup to enable read-aloud."
+      );
     }
     ctx.ui.setWidget("dyslexia-speech", () => ({
-      handleMouse(event) {
-        if (
-          !ready ||
-          setupTask ||
-          event.type !== "click" ||
-          event.button !== "left" ||
-          event.y !== 1
-        ) {
-          return;
-        }
-        let x = 0;
-        for (const [index, action] of actions.entries()) {
-          const end = x + action.length + 2;
-          if (event.x >= x && event.x < end) {
-            void execute(["", "replay", "stop", "previous"][index]);
-            return { handled: true };
-          }
-          x = end + 1;
-        }
-      },
       invalidate() {
         // This widget renders immutable strings and has no cached layout to invalidate.
       },
-      render: (width: number) => [
-        label.slice(0, width),
-        description.slice(0, width),
-      ],
+      render: (width: number) => lines.map((line) => line.slice(0, width)),
     }));
   };
   const createPlayer = () => {

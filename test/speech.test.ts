@@ -439,23 +439,16 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
       assert.doesNotMatch(audio.generated[0].text, /secret/u);
       await event("agent_settled");
       assert.equal(audio.played.length, 1, "no duplicate playback");
-      assert.deepEqual(
-        widget(widgets).handleMouse?.({
-          alt: false,
-          button: "left",
-          ctrl: false,
-          height: 3,
-          screenX: 2,
-          screenY: 1,
-          shift: false,
-          type: "click",
-          width: 200,
-          x: 2,
-          y: 1,
-        }),
-        { handled: true }
-      );
+      const playingWidget = widget(widgets);
+      assert.deepEqual(playingWidget.render(200), [
+        "Speech: playing | 1x | auto on",
+      ]);
+      assert.equal(playingWidget.handleMouse, undefined);
+      await command("");
       assert.equal(audio.played[0].paused, true);
+      assert.deepEqual(widget(widgets).render(200), [
+        "Speech: paused | 1x | auto on",
+      ]);
       await event("agent_start");
       branch.push(assistantEntry("newer"));
       await event("agent_settled");
@@ -570,7 +563,8 @@ for (const agentDir of [".pi/agent", "custom-agent"]) {
       await until(() => audio.played.length === 3);
       assert.equal(last(audio.played).path, "Another branch.");
       const component = widget(widgets);
-      assert.ok(component.render(12).every((line) => line.length <= 12));
+      assert.equal(component.render(200).length, 1);
+      assert.deepEqual(component.render(12), ["Speech: play"]);
       await shortcuts.get("ctrl+alt+x").handler(context);
       assert.equal(last(audio.played).signal.aborted, true);
       await event("session_shutdown");

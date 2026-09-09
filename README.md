@@ -105,7 +105,7 @@ The runtime lives in `~/.cache/pi-dyslexia/native/`, with its own model cache. S
 
 After upgrading from Python or the experimental FluidAudio helper, run `/speech setup` once. An old helper fails readiness rather than silently running without the ALBERT optimization. The experimental `PI_DYSLEXIA_SPEECH_BACKEND` selector is no longer used. Existing Python environments and model caches are left untouched, but this extension no longer uses them.
 
-The installed package loads both the writing and speech extensions automatically. Fullscreen mode enables clickable controls; ordinary `pi` still supports shortcuts and commands. Restart Pi after updating. For development against an older installed package, use `npm install --legacy-peer-deps` and `pi -e ./extensions/speech/index.ts` from this repository. Do not add that entry point when the installed package already includes speech, or it will load twice.
+The installed package loads both the writing and speech extensions automatically. Once speech is ready, it shows a single status row above the prompt; use shortcuts or commands to control playback. Setup instructions and installation progress remain visible while speech needs setup. Restart Pi after updating. For development against an older installed package, use `npm install --legacy-peer-deps` and `pi -e ./extensions/speech/index.ts` from this repository. Do not add that entry point when the installed package already includes speech, or it will load twice.
 
 ```text
 /speech setup         Install or repair read-aloud; explain downloads and ask permission
@@ -126,7 +126,7 @@ The installed package loads both the writing and speech extensions automatically
 /speech help          List controls
 ```
 
-**Shortcuts:** `Ctrl+Alt+S` plays/pauses, `Ctrl+Alt+R` replays, and `Ctrl+Alt+X` stops. Some terminals reserve these keys; slash commands remain available. Clickable controls work only in Pi fullscreen mode and do not replace the editor or footer.
+**Shortcuts:** `Ctrl+Alt+S` plays/pauses, `Ctrl+Alt+R` replays, and `Ctrl+Alt+X` stops. Some terminals reserve these keys; slash commands remain available.
 
 Automatic playback defaults to **on**, but remains inactive until the speech readiness check passes. A saved `/speech auto off` preference is still respected. Invalid or unreadable settings fall back to manual playback. A playback failure pauses automatic narration for the session instead of repeating the error after every answer; use `/speech auto on` to retry automatically or `/speech setup` to repair the installation. Preferences are stored in `~/.pi/agent/pi-dyslexia/speech.json`, independently of the writing policy. `/dyslexia off` does not stop speech. Loading a session never speaks old messages automatically. Narration starts only after Pi settles, not between tool calls. A new submitted prompt stops speech; typing alone does not. A paused or currently playing answer is not replaced by a newer answer; the widget offers `/speech latest` instead. There is no automatic backlog.
 

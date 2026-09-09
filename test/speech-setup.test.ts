@@ -181,10 +181,10 @@ test(
       assert.equal(executions.length, 0);
       assert.equal(confirmations, 0);
       assert.equal(checks, 1);
-      assert.match(
-        widget(widgets).render(200).join(" "),
-        /setup needed.*auto inactive.*\/speech setup/u
-      );
+      assert.deepEqual(widget(widgets).render(200), [
+        "Speech: setup needed | 1x | auto inactive",
+        "Text responses work. Use /speech setup to enable read-aloud.",
+      ]);
       assert.equal(
         await readFile(
           nodePath.join(home, ".pi/agent/pi-dyslexia/speech-setup-prompted"),
@@ -275,6 +275,10 @@ test(
       const running = command("setup");
       await tick();
       const installs = executions.length;
+      assert.deepEqual(widget(widgets).render(200), [
+        "Speech: setting up | 1x | auto inactive | newer answer: /speech latest",
+        "Downloading and installing. Text responses still work.",
+      ]);
       await command("setup");
       assert.equal(
         executions.length,
