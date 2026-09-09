@@ -183,22 +183,6 @@ npm run check          # Formatting, lint, types, and unit tests
 
 Tooling is a development dependency only; Pi installations without development dependencies do not need Lefthook or run a project `prepare` script.
 
-## GitHub Actions and protection for main
-
-[The Quality workflow](.github/workflows/quality.yml) runs formatting checks, linting, typechecking, and the default tests on Ubuntu with Node.js 24. It runs for pull requests targeting `main`, pushes to `main`, merge queue checks, and manual dispatches. The single `Quality checks` job fails if any step fails. Formatting is check-only, and the optional macOS audio test remains skipped.
-
-**The workflow alone does not prevent merges or direct pushes.** Enable a GitHub branch ruleset to enforce it:
-
-1. Push the workflow on a branch and open a pull request targeting `main`. Let `Quality checks` run once so GitHub can list the check.
-2. Open **Settings → Rules → Rulesets → New ruleset → New branch ruleset**. Set enforcement to **Active** and target `main`.
-3. Enable **Require a pull request before merging**. Configure review requirements separately if desired.
-4. Enable **Require status checks to pass**, add **Quality checks**, and select GitHub Actions as the expected source when available. Enable **Require branches to be up to date before merging**.
-5. Leave the bypass list empty, including administrators and apps. Keep force pushes and branch deletion blocked. Save the ruleset.
-
-The required check then blocks merging when formatting, linting, typechecking, or tests fail. Requiring pull requests also prevents direct pushes from bypassing the review path. Administrators can still change the ruleset itself. Do not rename the job without updating the required check.
-
-GitHub Actions must be enabled under **Settings → Actions → General**, with the official `actions/checkout` and `actions/setup-node` actions allowed. Branch rulesets are available for public repositories on GitHub Free; private repositories require GitHub Pro, Team, or Enterprise Cloud. See [GitHub's ruleset documentation](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository).
-
 ## Check
 
 With Node.js 22.6 or newer:
